@@ -8,6 +8,7 @@
 #include "transverter.h"
 
 #include "../lvgl/lvgl.h"
+#include "../voice.h"
 #include "band.h"
 #include <aether_radio/x6100_control/control.h>
 #include <stdio.h>
@@ -193,6 +194,7 @@ void cfg_band_load_next(bool up) {
     band_info_t *band_info = get_band_info_next(cur_freq, up, cur_id);
     if (band_info != NULL) {
         subject_set_int(cfg.band_id.val, band_info->id);
+        voice_say_text_fmt("Band %s", band_info->name);
     }
 }
 

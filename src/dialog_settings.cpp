@@ -1256,6 +1256,11 @@ static uint8_t make_voice_lang(uint8_t row) {
 
 #define AUTO_LEVEL_STEP 0.2f
 
+static void auto_level_enabled_voice_cb(lv_event_t * e) {
+    lv_obj_t *obj = lv_event_get_target(e);
+    voice_say_bool("Auto level", lv_obj_has_state(obj, LV_STATE_CHECKED));
+}
+
 static void auto_level_offset_update_cb(lv_event_t * e) {
     lv_obj_t *obj = lv_event_get_target(e);
     float val = lv_slider_get_value(obj) * AUTO_LEVEL_STEP;
@@ -1283,6 +1288,7 @@ static uint8_t make_auto_offset(uint8_t row) {
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(obj);
     obj = switch_bool(obj, cfg.auto_level_enabled.val);
+    lv_obj_add_event_cb(obj, auto_level_enabled_voice_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_set_width(obj, SMALL_3 - 30);
 
     /* Offset */
