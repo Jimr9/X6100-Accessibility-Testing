@@ -76,6 +76,31 @@ static void speak_keyboard_btn_text(const char *txt) {
 }
 
 /**
+ * After backspace/left/right change where the cursor sits, say the
+ * action plus what's now at the cursor - e.g. "backspace, N" or
+ * "left, start, C" - so moving through or deleting from already-typed
+ * text isn't silent about the result. Combined into one announcement
+ * (voice_delay_say_text_fmt cancels any in-flight speech before
+ * starting the next, so two separate calls back to back would cut the
+ * first one off).
+ */
+static void speak_textarea_context(const char *action) {
+    const char *content = lv_textarea_get_text(text);
+    uint32_t    cursor  = lv_textarea_get_cursor_pos(text);
+    size_t      len      = strlen(content);
+
+    if (len == 0) {
+        voice_delay_say_text_fmt("%s, empty", action);
+    } else if (cursor == 0) {
+        voice_delay_say_text_fmt("%s, start, %c", action, content[0]);
+    } else if (cursor >= len) {
+        voice_delay_say_text_fmt("%s, end, %c", action, content[len - 1]);
+    } else {
+        voice_delay_say_text_fmt("%s, %c", action, content[cursor]);
+    }
+}
+
+/**
  * Speak the character just typed/removed on the on-screen keyboard, the
  * same way dialog_freq.c speaks each typed digit - so encoder-driven
  * (non-touch) text entry gives feedback instead of being silent.
@@ -86,7 +111,20 @@ static void keyboard_char_voice_cb(lv_event_t * e) {
     if (btn_id == LV_BTNMATRIX_BTN_NONE) {
         return;
     }
-    speak_keyboard_btn_text(lv_btnmatrix_get_btn_text(obj, btn_id));
+    const char *txt = lv_btnmatrix_get_btn_text(obj, btn_id);
+    if (txt == NULL) {
+        return;
+    }
+
+    if (strcmp(txt, LV_SYMBOL_BACKSPACE) == 0) {
+        speak_textarea_context("backspace");
+    } else if (strcmp(txt, LV_SYMBOL_LEFT) == 0) {
+        speak_textarea_context("left");
+    } else if (strcmp(txt, LV_SYMBOL_RIGHT) == 0) {
+        speak_textarea_context("right");
+    } else {
+        speak_keyboard_btn_text(txt);
+    }
 }
 
 /**
@@ -234,6 +272,17 @@ lv_obj_t * textarea_window_open(textarea_window_cb_t ok, textarea_window_cb_t ca
     }
 
     lv_group_add_obj(keyboard_group, text);
+
+    if (keyboard) {
+        // Explicitly focus the on-screen keyboard rather than relying on
+        // whatever the group's focus happened to already be (which
+        // differed by caller - Wi-Fi's password flow removes its network
+        // list from the group right before this, which incidentally left
+        // focus on the keyboard; Callsign/QTH don't do that, so focus
+        // stayed on the textarea, and the encoder needed an extra push to
+        // reach the keyboard). This makes it consistent everywhere.
+        lv_group_focus_obj(keyboard);
+    }
 
     return window;
 }

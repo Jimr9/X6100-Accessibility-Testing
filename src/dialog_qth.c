@@ -13,6 +13,7 @@
 #include "msg.h"
 #include "dialog.h"
 #include "events.h"
+#include "voice.h"
 
 static void construct_cb(lv_obj_t *parent);
 static void destruct_cb();
@@ -33,8 +34,10 @@ static bool edit_ok() {
 
     if (qth_grid_check(qth)) {
         params_str_set(&params.qth, qth);
+        voice_say_text_fmt("QTH grid saved");
     } else {
         msg_update_text_fmt("Incorrect QTH Grid");
+        voice_say_text_fmt("Incorrect QTH Grid");
     }
 
     dialog_destruct(&dialog);

@@ -117,6 +117,7 @@ static lv_obj_t *label_status;
 static bool                  disable_buttons = false;
 static enum selected_ap_type sel_ap_type = SELECTED_AP_NONE;
 static uint16_t              last_spoken_row = LV_TABLE_CELL_NONE;
+static wifi_status_t         last_spoken_wifi_status = (wifi_status_t)-1;
 
 static wifi_ap_info_t cur_ap_info;
 static char          *cur_password = NULL;
@@ -597,8 +598,9 @@ static void wifi_state_changed_cb(void *s, lv_msg_t *m) {
         }
     }
 
-    const char *status_text;
-    switch (wifi_get_status()) {
+    wifi_status_t status = wifi_get_status();
+    const char   *status_text;
+    switch (status) {
     case WIFI_CONNECTED:
         status_text = "Connected";
         break;
@@ -607,10 +609,29 @@ static void wifi_state_changed_cb(void *s, lv_msg_t *m) {
         break;
     case WIFI_STARTING:
         status_text = "Starting...";
+        break;
     default:
         status_text = "Disconnected";
     }
     lv_label_set_text(label_status, status_text);
+
+    // This callback also fires on unrelated events (e.g. navigating the
+    // network list), not just genuine connection-status changes - only
+    // speak when the actual Wi-Fi status changed, so pressing Connect and
+    // waiting is followed by a spoken "Connected" (or "Disconnected" if it
+    // failed/dropped) instead of leaving the outcome silent. Only the two
+    // settled end states are announced here, not Connecting/Starting -
+    // those are transient and connect_cb() already speaks "Connecting to
+    // <ssid>" immediately on press with the more useful network name;
+    // announcing the generic status too would fire moments later and cut
+    // that off (voice_say_text_fmt cancels in-flight speech).
+    if (status != last_spoken_wifi_status) {
+        last_spoken_wifi_status = status;
+        if (status == WIFI_CONNECTED || status == WIFI_DISCONNECTED) {
+            voice_say_text_fmt("Wifi %s", status_text);
+        }
+    }
+
     if (!timer_status) {
         timer_status = lv_timer_create(update_status_cb, 100, NULL);
     }

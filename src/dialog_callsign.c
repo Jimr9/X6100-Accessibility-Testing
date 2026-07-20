@@ -12,6 +12,7 @@
 #include "dialog.h"
 #include "events.h"
 #include "msg.h"
+#include "voice.h"
 
 #include <ft8lib/encode.h>
 #include <ft8lib/decode.h>
@@ -59,12 +60,18 @@ static bool edit_ok() {
         snprintf(buf, sizeof(buf), "CQ %s", callsign);
         if (!check_ftx_msg_encoding(buf)) {
             msg_schedule_text_fmt("Unsupported callsign (too long)");
+            voice_say_text_fmt("Unsupported callsign, too long");
             return false;
         } else {
             msg_schedule_text_fmt("Callsign is long, QTH will be omitted");
+            voice_say_text_fmt("Callsign saved. Callsign is long, Q T H will be omitted");
+            params_str_set(&params.callsign, callsign);
+            dialog_destruct(&dialog);
+            return true;
         }
     }
     params_str_set(&params.callsign, callsign);
+    voice_say_text_fmt("Callsign saved");
     dialog_destruct(&dialog);
     return true;
 }
