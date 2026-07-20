@@ -43,18 +43,12 @@ static void cancel() {
 }
 
 /**
- * Speak the character just typed/removed on the on-screen keyboard, the
- * same way dialog_freq.c speaks each typed digit - so encoder-driven
- * (non-touch) text entry gives feedback instead of being silent.
+ * Speak a key's text, using a readable word for the icon-glyph special
+ * keys (backspace/enter/space/shift/mode-switch aren't plain readable
+ * text as button labels).
  */
-static void keyboard_char_voice_cb(lv_event_t * e) {
-    lv_obj_t *obj    = lv_event_get_target(e);
-    uint16_t  btn_id = lv_btnmatrix_get_selected_btn(obj);
-    if (btn_id == LV_BTNMATRIX_BTN_NONE) {
-        return;
-    }
-    const char *txt = lv_btnmatrix_get_btn_text(obj, btn_id);
-    if (txt == NULL) {
+static void speak_keyboard_btn_text(const char *txt) {
+    if (txt == NULL || txt[0] == '\0') {
         return;
     }
 
@@ -79,6 +73,39 @@ static void keyboard_char_voice_cb(lv_event_t * e) {
     } else {
         voice_delay_say_text_fmt("%s", txt);
     }
+}
+
+/**
+ * Speak the character just typed/removed on the on-screen keyboard, the
+ * same way dialog_freq.c speaks each typed digit - so encoder-driven
+ * (non-touch) text entry gives feedback instead of being silent.
+ */
+static void keyboard_char_voice_cb(lv_event_t * e) {
+    lv_obj_t *obj    = lv_event_get_target(e);
+    uint16_t  btn_id = lv_btnmatrix_get_selected_btn(obj);
+    if (btn_id == LV_BTNMATRIX_BTN_NONE) {
+        return;
+    }
+    speak_keyboard_btn_text(lv_btnmatrix_get_btn_text(obj, btn_id));
+}
+
+/**
+ * Speak the key the encoder just moved onto, BEFORE it's pressed/typed.
+ * Rotating the encoder only sends LV_EVENT_KEY to move the highlighted
+ * button (btn_id_sel) inside the matrix - it never fires VALUE_CHANGED,
+ * which only fires on an actual press. Without this, there is no way to
+ * know which letter is about to be typed until after committing it.
+ */
+static uint16_t last_nav_btn_id = LV_BTNMATRIX_BTN_NONE;
+
+static void keyboard_nav_voice_cb(lv_event_t * e) {
+    lv_obj_t *obj    = lv_event_get_target(e);
+    uint16_t  btn_id = lv_btnmatrix_get_selected_btn(obj);
+    if (btn_id == LV_BTNMATRIX_BTN_NONE || btn_id == last_nav_btn_id) {
+        return;
+    }
+    last_nav_btn_id = btn_id;
+    speak_keyboard_btn_text(lv_btnmatrix_get_btn_text(obj, btn_id));
 }
 
 static void text_cb(lv_event_t * e) {
@@ -188,12 +215,14 @@ lv_obj_t * textarea_window_open(textarea_window_cb_t ok, textarea_window_cb_t ca
 
     if (!keyboard_ready()) {
         keyboard = lv_keyboard_create(lv_scr_act());
+        last_nav_btn_id = LV_BTNMATRIX_BTN_NONE;
 
         lv_keyboard_set_textarea(keyboard, text);
         lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_TEXT_UPPER);
         lv_obj_add_event_cb(keyboard, keyboard_cb, LV_EVENT_READY, NULL);
         lv_obj_add_event_cb(keyboard, keyboard_cb, LV_EVENT_CANCEL, NULL);
         lv_obj_add_event_cb(keyboard, keyboard_cb, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(keyboard, keyboard_nav_voice_cb, LV_EVENT_KEY, NULL);
         lv_obj_add_event_cb(keyboard, keyboard_char_voice_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
         lv_obj_set_style_bg_color(keyboard, bg_color, LV_PART_MAIN);
