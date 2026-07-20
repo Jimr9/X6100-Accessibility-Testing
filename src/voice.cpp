@@ -223,6 +223,11 @@ void voice_say_text_fmt(const char * fmt, ...) {
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
 
+    if (thread) {
+        pthread_cancel(thread);
+        pthread_join(thread, NULL);
+    }
+
     delay = 0;
     pthread_create(&thread, NULL, say_thread, NULL);
 }

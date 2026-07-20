@@ -96,7 +96,7 @@ static button_item_t btn_msg_p1 = {
     .type  = BTN_TEXT,
     .label = "(MSG 1:2)",
     .press = button_next_page_cb,
-    .voice = "Voice messages|page 1",
+    .voice = "Voice messages page 1",
 };
 static button_item_t btn_send = {
     .type  = BTN_TEXT,
@@ -126,7 +126,7 @@ static button_item_t btn_msg_p2 = {
     .type  = BTN_TEXT,
     .label = "(MSG 2:2)",
     .press = button_next_page_cb,
-    .voice = "Voice messages|page 2",
+    .voice = "Voice messages page 2",
 };
 static button_item_t btn_rec = {
     .type  = BTN_TEXT,

@@ -558,26 +558,37 @@ static void main_screen_keypad_cb(lv_event_t * e) {
                 switch (subject_get_int(cfg_cur.mode)) {
                     case x6100_mode_cw:
                     case x6100_mode_cwr:
-                        if (!dialog_type_is_run(dialog_msg_cw)) {
+                        if (dialog_type_is_run(dialog_msg_cw)) {
+                            // Already open - cycle to the dialog's next page
+                            // instead of re-announcing "window" with no
+                            // new information, matching GEN/APP/KEY/DFN.
+                            buttons_page_t *cur = buttons_get_cur_page();
+                            if (cur && cur->items[0]->next) {
+                                cur->items[0]->press(cur->items[0]);
+                            }
+                        } else {
                             apps_disable();
+                            dialog_construct(dialog_msg_cw, obj);
+                            voice_say_text_fmt("CW messages window");
                         }
-
                         panel_hide();
-                        dialog_construct(dialog_msg_cw, obj);
-                        voice_say_text_fmt("CW messages window");
                         break;
 
                     case x6100_mode_lsb:
                     case x6100_mode_usb:
                     case x6100_mode_am:
                     case x6100_mode_nfm:
-                        if (!dialog_type_is_run(dialog_msg_voice)) {
+                        if (dialog_type_is_run(dialog_msg_voice)) {
+                            buttons_page_t *cur = buttons_get_cur_page();
+                            if (cur && cur->items[0]->next) {
+                                cur->items[0]->press(cur->items[0]);
+                            }
+                        } else {
                             apps_disable();
+                            dialog_construct(dialog_msg_voice, obj);
+                            voice_say_text_fmt("Voice messages window");
                         }
-
                         panel_hide();
-                        dialog_construct(dialog_msg_voice, obj);
-                        voice_say_text_fmt("Voice messages window");
                         break;
 
                     default:

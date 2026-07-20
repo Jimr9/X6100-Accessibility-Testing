@@ -358,8 +358,8 @@ static button_item_t btn_rtty_reverse = {
 
 
 /* VOL pages */
-static button_item_t btn_vol_p1 = make_page_btn("(VOL 1:2)", "Volume|page 1");
-static button_item_t btn_vol_p2 = make_page_btn("(VOL 2:2)", "Volume|page 2");
+static button_item_t btn_vol_p1 = make_page_btn("(VOL 1:2)", "Volume page 1");
+static button_item_t btn_vol_p2 = make_page_btn("(VOL 2:2)", "Volume page 2");
 
 buttons_page_t buttons_page_vol_1 = {
     {&btn_vol_p1, &btn_vol, &btn_sql, &btn_rfg, &btn_tx_pwr}
@@ -369,10 +369,10 @@ static buttons_page_t page_vol_2 = {
 };
 
 /* MFK pages */
-static button_item_t btn_mfk_p1 = make_page_btn("(MFK 1:4)", "MFK|page 1");
-static button_item_t btn_mfk_p2 = make_page_btn("(MFK 2:4)", "MFK|page 2");
-static button_item_t btn_mfk_p3 = make_page_btn("(MFK 3:4)", "MFK|page 3");
-static button_item_t btn_mfk_p4 = make_page_btn("(MFK 4:4)", "MFK|page 4");
+static button_item_t btn_mfk_p1 = make_page_btn("(MFK 1:4)", "MFK page 1");
+static button_item_t btn_mfk_p2 = make_page_btn("(MFK 2:4)", "MFK page 2");
+static button_item_t btn_mfk_p3 = make_page_btn("(MFK 3:4)", "MFK page 3");
+static button_item_t btn_mfk_p4 = make_page_btn("(MFK 4:4)", "MFK page 4");
 
 static buttons_page_t page_mfk_1 = {
     {&btn_mfk_p1, &btn_rit, &btn_xit, &btn_zoom, &btn_ant}
@@ -389,8 +389,8 @@ static buttons_page_t page_mfk_4 = {
 
 /* MEM pages */
 
-static button_item_t btn_mem_p1 = make_page_btn("(MEM 1:2)", "Memory|page 1");
-static button_item_t btn_mem_p2 = make_page_btn("(MEM 2:2)", "Memory|page 2");
+static button_item_t btn_mem_p1 = make_page_btn("(MEM 1:2)", "Memory page 1");
+static button_item_t btn_mem_p2 = make_page_btn("(MEM 2:2)", "Memory page 2");
 
 static buttons_page_t page_mem_1 = {
     {&btn_mem_p1, &btn_mem_1, &btn_mem_2, &btn_mem_3, &btn_mem_4}
@@ -400,10 +400,10 @@ static buttons_page_t page_mem_2 = {
 };
 
 /* KEY pages */
-static button_item_t btn_key_p1 = make_page_btn("(KEY 1:2)", "Key|page 1");
-static button_item_t btn_key_p2 = make_page_btn("(KEY 2:2)", "Key|page 2");
-static button_item_t btn_cw_p1  = make_page_btn("(CW 1:2)", "CW|page 1");
-static button_item_t btn_cw_p2  = make_page_btn("(CW 2:2)", "CW|page 2");
+static button_item_t btn_key_p1 = make_page_btn("(KEY 1:2)", "Key page 1");
+static button_item_t btn_key_p2 = make_page_btn("(KEY 2:2)", "Key page 2");
+static button_item_t btn_cw_p1  = make_page_btn("(CW 1:2)", "CW page 1");
+static button_item_t btn_cw_p2  = make_page_btn("(CW 2:2)", "CW page 2");
 
 static buttons_page_t page_key_1 = {
     {&btn_key_p1, &btn_key_speed, &btn_key_volume, &btn_key_train, &btn_key_tone}
@@ -419,9 +419,9 @@ static buttons_page_t page_cw_decoder_2 = {
 };
 
 /* DFN pages */
-static button_item_t btn_dfn_p1 = make_page_btn("(DFN 1:3)", "DNF page");
-static button_item_t btn_dfn_p2 = make_page_btn("(DFN 2:3)", "NB page");
-static button_item_t btn_dfn_p3 = make_page_btn("(DFN 3:3)", "NR page");
+static button_item_t btn_dfn_p1 = make_page_btn("(DFN 1:3)", "D N F page");
+static button_item_t btn_dfn_p2 = make_page_btn("(DFN 2:3)", "N B page");
+static button_item_t btn_dfn_p3 = make_page_btn("(DFN 3:3)", "N R page");
 
 static buttons_page_t page_dfn_1 = {
     {&btn_dfn_p1, &btn_dnf, &btn_dnf_center, &btn_dnf_width, &btn_dnf_auto}
@@ -439,9 +439,9 @@ static buttons_page_t page_dfl_1 = {
 };
 
 /* App pages */
-static button_item_t btn_app_p1 = make_page_btn("(APP 1:3)", "Application|page 1");
-static button_item_t btn_app_p2 = make_page_btn("(APP 2:3)", "Application|page 2");
-static button_item_t btn_app_p3 = make_page_btn("(APP 3:3)", "Application|page 3");
+static button_item_t btn_app_p1 = make_page_btn("(APP 1:3)", "Application page 1");
+static button_item_t btn_app_p2 = make_page_btn("(APP 2:3)", "Application page 2");
+static button_item_t btn_app_p3 = make_page_btn("(APP 3:3)", "Application page 3");
 
 static buttons_page_t page_app_1 = {
     {&btn_app_p1, &btn_rtty, &btn_ft8, &btn_swr, &btn_gps}
