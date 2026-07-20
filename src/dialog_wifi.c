@@ -137,7 +137,15 @@ static void construct_cb(lv_obj_t *parent) {
     dialog.obj = dialog_init(parent);
 
     if (params.wifi_enabled.x) {
-        start_refresh_ap_list();
+        // Populate once from whatever's already known, but don't start the
+        // continuous refresh timer here - that used to rebuild the table
+        // (and reset table-navigation state) every second even while just
+        // browsing an already-populated list, making it hard to select a
+        // network before the list changed under you. The list now only
+        // auto-refreshes while an actively-requested scan is running (see
+        // start_scan_cb/update_aps_table_cb), stopping itself the moment
+        // that scan completes.
+        update_aps_table_cb(NULL);
     }
 
     // Container
@@ -298,7 +306,6 @@ static void wifi_bt_toggle_cb(button_item_t *item) {
         voice_say_text_fmt("Wifi off");
     } else {
         wifi_power_on();
-        start_refresh_ap_list();
         msg_update_text_fmt("Turning on");
         voice_say_text_fmt("Wifi turning on");
     }
@@ -318,6 +325,7 @@ static void start_scan_cb(button_item_t *item) {
         msg_update_text_fmt("Start scan");
         voice_say_text_fmt("Scanning for networks");
         wifi_start_scan();
+        start_refresh_ap_list();
     }
 }
 
@@ -464,7 +472,9 @@ static const char *wifi_con_delete_label_getter() {
 }
 
 static void start_refresh_ap_list() {
-    timer_refresh_ap = lv_timer_create(update_aps_table_cb, 1000, NULL);
+    if (!timer_refresh_ap) {
+        timer_refresh_ap = lv_timer_create(update_aps_table_cb, 1000, NULL);
+    }
 }
 
 static void stop_refresh_ap_list() {
@@ -478,8 +488,13 @@ static void update_aps_table_cb(lv_timer_t *t) {
     wifi_ap_arr_t aps_info;
     uint16_t      row;
     bool          first_known = true;
+    bool          scan_just_finished = (t != NULL) && !wifi_scanning();
 
-    if (!params.wifi_enabled.x) {
+    // Only called repeatedly while a scan the user explicitly requested is
+    // still running (see start_scan_cb) - stop as soon as it's done or
+    // Wi-Fi got turned off, so the list holds still for browsing/selecting
+    // the rest of the time instead of rebuilding every second.
+    if (!params.wifi_enabled.x || scan_just_finished) {
         stop_refresh_ap_list();
     }
 
@@ -505,6 +520,11 @@ static void update_aps_table_cb(lv_timer_t *t) {
         lv_table_set_row_cnt(ap_table, 1);
     }
     lv_event_send(ap_table, LV_EVENT_VALUE_CHANGED, NULL);
+
+    if (scan_just_finished) {
+        voice_say_text_fmt("Scan complete, %i networks found", aps_info.count);
+    }
+
     wifi_aps_info_delete(aps_info);
 }
 
