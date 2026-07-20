@@ -131,6 +131,7 @@ static void load_general_page(button_item_t *item) {
         buttons_mark(btn, false);
     }
     buttons_mark(item, true);
+    voice_say_text_fmt("General");
 }
 
 static void load_ui_page(button_item_t *item) {
@@ -139,6 +140,7 @@ static void load_ui_page(button_item_t *item) {
         buttons_mark(btn, false);
     }
     buttons_mark(item, true);
+    voice_say_text_fmt("Interface");
 }
 
 static void load_voice_page(button_item_t *item) {
@@ -147,6 +149,7 @@ static void load_voice_page(button_item_t *item) {
         buttons_mark(btn, false);
     }
     buttons_mark(item, true);
+    voice_say_text_fmt("Voice");
 }
 
 static void load_info_page(button_item_t *item) {
@@ -155,6 +158,7 @@ static void load_info_page(button_item_t *item) {
         buttons_mark(btn, false);
     }
     buttons_mark(item, true);
+    voice_say_text_fmt("Info");
 }
 
 /* Shared update */
@@ -2153,6 +2157,7 @@ static void construct_cb(lv_obj_t *parent) {
         buttons_mark(btn, false);
     }
     buttons_mark(&btn_general, true);
+    voice_say_text_fmt("General");
 }
 
 static void destruct_cb() {
