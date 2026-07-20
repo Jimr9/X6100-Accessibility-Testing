@@ -529,6 +529,7 @@ static void keyboard_open() {
         lv_textarea_set_placeholder_text(text, " Password");
     }
     disable_buttons = true;
+    voice_say_text_fmt("Enter password for %s", cur_ap_info.ssid);
 }
 
 static void keyboard_close() {

@@ -17,6 +17,7 @@
 #include "keyboard.h"
 #include "main_screen.h"
 #include "buttons.h"
+#include "voice.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -38,6 +39,7 @@ static uint16_t             freq_index;
 static uint32_t             freq_start;
 static uint32_t             freq_center;
 static uint32_t             freq_stop;
+static bool                 completed_lap;
 
 static bool    linear;
 static int32_t span;
@@ -104,6 +106,7 @@ static void do_init() {
     }
 
     freq_index = 0;
+    completed_lap = false;
     freq_center = subject_get_int(cfg_cur.fg_freq);
 
     freq_start = freq_center - span / 2;
@@ -132,6 +135,7 @@ static void do_step(float vswr) {
 
     if (freq_index == STEPS) {
         freq_index = 0;
+        completed_lap = true;
     }
 
     uint32_t freq = freq_start + (freq_stop - freq_start) * freq_index / STEPS;
@@ -320,6 +324,30 @@ void dialog_swrscan_run_cb(button_item_t *item) {
     if (run) {
         run = false;
         radio_stop_swrscan();
+
+        // Report the frequency with the lowest SWR found, so the result is
+        // usable without seeing the chart. Only search the portion of the
+        // sweep actually measured - unmeasured slots still hold the 1.0
+        // placeholder from do_init() and would look like a perfect match.
+        uint16_t measured = completed_lap ? STEPS : freq_index;
+        if (measured == 0) {
+            voice_say_text_fmt("Scan stopped, no data collected");
+        } else {
+            float    best_vswr  = data[0];
+            uint16_t best_index = 0;
+            for (uint16_t i = 1; i < measured; i++) {
+                if (data[i] < best_vswr) {
+                    best_vswr  = data[i];
+                    best_index = i;
+                }
+            }
+            uint32_t best_freq = freq_start + (freq_stop - freq_start) * best_index / STEPS;
+            uint16_t mhz, khz, hz;
+            split_freq(best_freq, &mhz, &khz, &hz);
+            voice_say_text_fmt("Scan stopped. Lowest S W R %.1f to 1 at %i megahertz %i kilohertz", best_vswr, mhz,
+                               khz);
+        }
+
         radio_set_freq(freq_center);
         mem_load(MEM_BACKUP_ID);
     } else {
