@@ -33,11 +33,11 @@ params_t params = {
     .brightness_timeout     = 10,
     .brightness_buttons     = BUTTONS_TEMPORARILY,
 
-    .spectrum_beta          = { .x = 70, .min = 0, .max = 90, .name = "spectrum_beta"},
-    .spectrum_filled        = { .x = true,  .name = "spectrum_filled"},
-    .spectrum_peak          = { .x = true,  .name = "spectrum_peak"},
-    .spectrum_peak_hold     = { .x = 5,  .min=1, .max=10, .name = "spectrum_peak_hold"},
-    .spectrum_peak_speed    = { .x = 5,  .min=1, .max=30, .name = "spectrum_peak_speed"},
+    .spectrum_beta          = { .x = 70, .min = 0, .max = 90, .name = "spectrum_beta",       .voice = "Spectrum beta"},
+    .spectrum_filled        = { .x = true,  .name = "spectrum_filled",                       .voice = "Spectrum filled"},
+    .spectrum_peak          = { .x = true,  .name = "spectrum_peak",                         .voice = "Spectrum peak"},
+    .spectrum_peak_hold     = { .x = 5,  .min=1, .max=10, .name = "spectrum_peak_hold",       .voice = "Spectrum peak hold"},
+    .spectrum_peak_speed    = { .x = 5,  .min=1, .max=30, .name = "spectrum_peak_speed",      .voice = "Spectrum peak speed"},
     .waterfall_smooth_scroll= { .x = false,  .name = "waterfall_smooth_scroll",  .voice = "Waterfall smooth scroll"},
     .waterfall_center_line  = { .x = true,  .name = "waterfall_center_line",    .voice = "Waterfall center line"},
     .waterfall_zoom         = { .x = true,  .name = "waterfall_zoom",           .voice = "Waterfall zoom"},
@@ -49,7 +49,7 @@ params_t params = {
     .clock_power_timeout    = 3,
     .clock_tx_timeout       = 1,
 
-    .charger                = { .x = 1, .min = 0, .max = 2, .name = "charger"},
+    .charger                = { .x = 1, .min = 0, .max = 2, .name = "charger",                .voice = "Charger"},
     .bias_drive             = 450,
     .bias_final             = 650,
     .line_in                = 10,
@@ -87,7 +87,7 @@ params_t params = {
     .rec_gain_db_f          = { .x = 0.0f, .name = "rec_gain_db_f"},
 
     .voice_mode             = { .x = VOICE_LCD,                                 .name = "voice_mode" },
-    .voice_lang             = { .x = 0,   .min = 0,  .max = (VOICES_NUM - 1),   .name = "voice_lang" },
+    .voice_lang             = { .x = 0,   .min = 0,  .max = (VOICES_NUM - 1),   .name = "voice_lang",   .voice = "Voice type" },
     .voice_rate             = { .x = 100, .min = 50, .max = 150,                .name = "voice_rate",     .voice = "Voice rate" },
     .voice_pitch            = { .x = 100, .min = 50, .max = 150,                .name = "voice_pitch",    .voice = "Voice pitch" },
     .voice_volume           = { .x = 100, .min = 50, .max = 150,                .name = "voice_volume",   .voice = "Voice volume" },
@@ -97,7 +97,7 @@ params_t params = {
 
     .wifi_enabled           = { .x = false, .name="wifi_enabled" },
 
-    .theme                  = { .x = THEME_SIMPLE, .name="theme"},
+    .theme                  = { .x = THEME_SIMPLE, .name="theme", .voice = "Theme"},
 };
 
 static sqlite3_stmt     *write_mode_stmt;

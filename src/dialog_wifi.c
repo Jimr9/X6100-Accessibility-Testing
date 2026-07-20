@@ -16,6 +16,7 @@
 #include "pubsub_ids.h"
 #include "radio.h"
 #include "textarea_window.h"
+#include "voice.h"
 #include "wifi.h"
 
 #include "lvgl/lvgl.h"
@@ -115,6 +116,7 @@ static lv_obj_t *label_status;
 
 static bool                  disable_buttons = false;
 static enum selected_ap_type sel_ap_type = SELECTED_AP_NONE;
+static uint16_t              last_spoken_row = LV_TABLE_CELL_NONE;
 
 static wifi_ap_info_t cur_ap_info;
 static char          *cur_password = NULL;
@@ -250,7 +252,8 @@ static void cell_selected_cb(lv_event_t *e) {
     uint16_t  row;
     lv_table_get_selected_cell(obj, &row, &col);
     if ((row == LV_TABLE_CELL_NONE) || (col == LV_TABLE_CELL_NONE)) {
-        sel_ap_type = SELECTED_AP_NONE;
+        sel_ap_type     = SELECTED_AP_NONE;
+        last_spoken_row = LV_TABLE_CELL_NONE;
         lv_msg_send(MSG_WIFI_STATE_CHANGED, NULL);
         return;
     }
@@ -263,8 +266,17 @@ static void cell_selected_cb(lv_event_t *e) {
             sel_ap_type = SELECTED_AP_UNKNOWN;
             lv_msg_send(MSG_WIFI_STATE_CHANGED, NULL);
         }
+        // The AP list also fires VALUE_CHANGED on every periodic refresh while
+        // scanning, not just on real navigation - only speak when the actually
+        // selected row changed, so it doesn't repeat the same AP every second.
+        if (row != last_spoken_row) {
+            last_spoken_row = row;
+            voice_say_text_fmt("%s, %s, %s, signal %i percent", ap_info->ssid, ap_info->known ? "known" : "new",
+                               ap_info->is_connected ? "connected" : "not connected", ap_info->strength);
+        }
     } else if (sel_ap_type != SELECTED_AP_NONE) {
-        sel_ap_type = SELECTED_AP_NONE;
+        sel_ap_type     = SELECTED_AP_NONE;
+        last_spoken_row = LV_TABLE_CELL_NONE;
         lv_msg_send(MSG_WIFI_STATE_CHANGED, NULL);
     }
 }
@@ -282,10 +294,12 @@ static void wifi_bt_toggle_cb(button_item_t *item) {
         lv_table_set_cell_user_data(ap_table, 0, 0, NULL);
         lv_table_set_row_cnt(ap_table, 1);
         lv_event_send(ap_table, LV_EVENT_VALUE_CHANGED, NULL);
+        voice_say_text_fmt("Wifi off");
     } else {
         wifi_power_on();
         start_refresh_ap_list();
         msg_update_text_fmt("Turning on");
+        voice_say_text_fmt("Wifi turning on");
     }
 }
 
@@ -298,8 +312,10 @@ static void start_scan_cb(button_item_t *item) {
         return;
     if (wifi_scanning()) {
         msg_update_text_fmt("Already scanning");
+        voice_say_text_fmt("Already scanning");
     } else {
         msg_update_text_fmt("Start scan");
+        voice_say_text_fmt("Scanning for networks");
         wifi_start_scan();
     }
 }
@@ -320,8 +336,10 @@ static void connect_cb(button_item_t *item) {
         wifi_ap_info_t *ap_info = (wifi_ap_info_t *)lv_table_get_cell_user_data(ap_table, row, col);
         if (ap_info->known) {
             wifi_connect(ap_info->ssid);
+            voice_say_text_fmt("Connecting to %s", ap_info->ssid);
         } else if (ap_info->password_validator == NULL) {
             wifi_add_connection(ap_info->ssid, NULL);
+            voice_say_text_fmt("Connecting to %s", ap_info->ssid);
         } else {
             cur_ap_info = *ap_info;
             keyboard_open();
@@ -329,6 +347,7 @@ static void connect_cb(button_item_t *item) {
         break;
     case WIFI_CONNECTED:
         wifi_disconnect();
+        voice_say_text_fmt("Disconnecting");
         break;
     case WIFI_CONNECTING:
         break;
@@ -348,9 +367,11 @@ static void con_change_passwd_cb(button_item_t *item) {
     if (ap_info) {
         if (!ap_info->known) {
             msg_update_text_fmt("Can't update new connection");
+            voice_say_text_fmt("Can't update new connection");
             return;
         } else if (!ap_info->password_validator) {
             msg_update_text_fmt("Password is not used");
+            voice_say_text_fmt("Password is not used");
             return;
         }
         cur_ap_info = *ap_info;
@@ -371,6 +392,7 @@ static void con_delete_cb(button_item_t *item) {
     if (ap_info) {
         wifi_delete_connection(ap_info->ssid);
         msg_update_text_fmt("Connection deleted");
+        voice_say_text_fmt("Connection deleted");
     }
 }
 
@@ -518,6 +540,7 @@ static void keyboard_close() {
 
 static bool keyboard_cancel_cb() {
     msg_update_text_fmt("Password is required");
+    voice_say_text_fmt("Password is required");
     keyboard_close();
     return true;
 }
@@ -528,6 +551,7 @@ static bool keyboard_ok_cb() {
     if (cur_ap_info.password_validator) {
         if (!cur_ap_info.password_validator(cur_password)) {
             msg_update_text_fmt("Incorrect password");
+            voice_say_text_fmt("Incorrect password");
             return false;
         }
     }
@@ -536,6 +560,7 @@ static bool keyboard_ok_cb() {
     } else {
         wifi_add_connection(cur_ap_info.ssid, cur_password);
     }
+    voice_say_text_fmt("Connecting to %s", cur_ap_info.ssid);
     cur_password = NULL;
     keyboard_close();
     return true;

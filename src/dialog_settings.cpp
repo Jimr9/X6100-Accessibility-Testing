@@ -204,15 +204,15 @@ static void theme_update_cb(lv_event_t * e) {
 }
 
 /* Shared create */
-static lv_obj_t * create_switch(lv_obj_t *parent){
+static lv_obj_t * create_switch(lv_obj_t *parent, const char *name = nullptr){
     lv_obj_t *obj = lv_switch_create(parent);
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, name);
     lv_obj_center(obj);
     return obj;
 }
 
 static lv_obj_t * switch_bool(lv_obj_t *parent, params_bool_t *var) {
-    lv_obj_t *obj = create_switch(parent);
+    lv_obj_t *obj = create_switch(parent, var->voice);
     lv_obj_add_event_cb(obj, bool_update_cb, LV_EVENT_VALUE_CHANGED, var);
     if (var->x) {
         lv_obj_add_state(obj, LV_STATE_CHECKED);
@@ -220,8 +220,8 @@ static lv_obj_t * switch_bool(lv_obj_t *parent, params_bool_t *var) {
     return obj;
 }
 
-static lv_obj_t * switch_bool(lv_obj_t *parent, Subject *subj) {
-    lv_obj_t *obj = create_switch(parent);
+static lv_obj_t * switch_bool(lv_obj_t *parent, Subject *subj, const char *name = nullptr) {
+    lv_obj_t *obj = create_switch(parent, name);
     lv_obj_add_event_cb(obj, bool_update_subj_cb, LV_EVENT_VALUE_CHANGED, subj);
 
     if (subject_get_int(subj)) {
@@ -233,7 +233,7 @@ static lv_obj_t * switch_bool(lv_obj_t *parent, Subject *subj) {
 static lv_obj_t * spinbox_uint8(lv_obj_t *parent, params_uint8_t *var, void(*update_cb)(void)=nullptr) {
     lv_obj_t *obj = lv_spinbox_create(parent);
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, var->voice);
 
     lv_spinbox_set_value(obj, var->x);
     lv_spinbox_set_range(obj, var->min, var->max);
@@ -250,7 +250,7 @@ static lv_obj_t * spinbox_uint8(lv_obj_t *parent, params_uint8_t *var, void(*upd
 static lv_obj_t * dropdown_uint8(lv_obj_t *parent, params_uint8_t *var, const char *options, lv_event_cb_t cb=uint8_dropdown_update_cb) {
     lv_obj_t *obj = lv_dropdown_create(parent);
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, var->voice);
 
     lv_obj_add_event_cb(obj, cb, LV_EVENT_VALUE_CHANGED, var);
 
@@ -267,11 +267,11 @@ static lv_obj_t * dropdown_uint8(lv_obj_t *parent, params_uint8_t *var, const ch
 
 template <typename T>
 lv_obj_t *slider_with_text(lv_obj_t *cell, T val, T min, T max, T step, size_t width, const char *fmt,
-                           lv_event_cb_t event_cb, void *cb_user_data = nullptr) {
+                           lv_event_cb_t event_cb, void *cb_user_data = nullptr, const char *voice_name = nullptr) {
     lv_obj_t *obj;
     obj = lv_slider_create(cell);
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, voice_name);
 
     lv_slider_set_mode(obj, LV_SLIDER_MODE_NORMAL);
     lv_slider_set_range(obj, min / step, max / step);
@@ -389,7 +389,7 @@ static uint8_t make_date(uint8_t row) {
     obj = lv_spinbox_create(grid);
     day = obj;
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, "Day");
 
     lv_spinbox_set_value(obj, ts.tm_mday);
     lv_spinbox_set_range(obj, 1, 31);
@@ -406,7 +406,7 @@ static uint8_t make_date(uint8_t row) {
     obj = lv_spinbox_create(grid);
     month = obj;
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, "Month");
 
     lv_spinbox_set_value(obj, ts.tm_mon + 1);
     lv_spinbox_set_range(obj, 1, 12);
@@ -423,7 +423,7 @@ static uint8_t make_date(uint8_t row) {
     obj = lv_spinbox_create(grid);
     year = obj;
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, "Year");
 
     lv_spinbox_set_value(obj, ts.tm_year + 1900);
     lv_spinbox_set_range(obj, 2020, 2038);
@@ -454,7 +454,7 @@ static uint8_t make_time(uint8_t row) {
     obj = lv_spinbox_create(grid);
     hour = obj;
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, "Hour");
 
     lv_spinbox_set_value(obj, ts.tm_hour);
     lv_spinbox_set_range(obj, 0, 23);
@@ -471,7 +471,7 @@ static uint8_t make_time(uint8_t row) {
     obj = lv_spinbox_create(grid);
     min = obj;
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, "Minute");
 
     lv_spinbox_set_value(obj, ts.tm_min);
     lv_spinbox_set_range(obj, 0, 59);
@@ -488,7 +488,7 @@ static uint8_t make_time(uint8_t row) {
     obj = lv_spinbox_create(grid);
     sec = obj;
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, "Second");
 
     lv_spinbox_set_value(obj, ts.tm_sec);
     lv_spinbox_set_range(obj, 0, 59);
@@ -550,7 +550,7 @@ static uint8_t make_backlight(uint8_t row) {
 
     obj = lv_spinbox_create(grid);
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, "Backlight timeout");
 
     lv_spinbox_set_value(obj, params.brightness_timeout);
     lv_spinbox_set_range(obj, 5, 120);
@@ -573,7 +573,7 @@ static uint8_t make_backlight(uint8_t row) {
 
     obj = lv_slider_create(obj);
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, "Backlight brightness");
 
     lv_slider_set_mode(obj, LV_SLIDER_MODE_RANGE);
     lv_slider_set_value(obj, params.brightness_normal, LV_ANIM_OFF);
@@ -592,7 +592,7 @@ static uint8_t make_backlight(uint8_t row) {
 
     obj = lv_dropdown_create(grid);
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, "Button backlight");
 
     lv_obj_set_size(obj, SMALL_6, 56);
     lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, 1, 6, LV_GRID_ALIGN_CENTER, row, 1);
@@ -638,7 +638,7 @@ static uint8_t make_line_gain(uint8_t row) {
     lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(cell);
 
-    slider_with_text(cell, (int)params.line_in, 0, 36, 1, SMALL_3 - 30 - 60, "%d", line_in_out_update_cb, (void*)radio_set_line_in);
+    slider_with_text(cell, (int)params.line_in, 0, 36, 1, SMALL_3 - 30 - 60, "%d", line_in_out_update_cb, (void*)radio_set_line_in, "Line in");
 
     cell = lv_obj_create(grid);
 
@@ -648,7 +648,7 @@ static uint8_t make_line_gain(uint8_t row) {
     lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(cell);
 
-    slider_with_text(cell, (int)params.line_out, 0, 36, 1, SMALL_3 - 30 - 60, "%d", line_in_out_update_cb, (void*)radio_set_line_out);
+    slider_with_text(cell, (int)params.line_out, 0, 36, 1, SMALL_3 - 30 - 60, "%d", line_in_out_update_cb, (void*)radio_set_line_out, "Line out");
 
     return row + 1;
 }
@@ -746,7 +746,7 @@ static uint8_t make_clock(uint8_t row) {
 
     obj = lv_dropdown_create(grid);
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, "Clock view");
 
     lv_obj_set_size(obj, SMALL_6, 56);
     lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, 1, 6, LV_GRID_ALIGN_CENTER, row, 1);
@@ -770,7 +770,7 @@ static uint8_t make_clock(uint8_t row) {
 
     obj = lv_spinbox_create(grid);
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, "Clock timeout");
 
     lv_spinbox_set_value(obj, params.clock_time_timeout);
     lv_spinbox_set_range(obj, 1, 59);
@@ -783,7 +783,7 @@ static uint8_t make_clock(uint8_t row) {
 
     obj = lv_spinbox_create(grid);
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, "Power timeout");
 
     lv_spinbox_set_value(obj, params.clock_power_timeout);
     lv_spinbox_set_range(obj, 1, 59);
@@ -796,7 +796,7 @@ static uint8_t make_clock(uint8_t row) {
 
     obj = lv_spinbox_create(grid);
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, "TX timeout");
 
     lv_spinbox_set_value(obj, params.clock_tx_timeout);
     lv_spinbox_set_range(obj, 0, 10);
@@ -894,7 +894,7 @@ static uint8_t make_long_action(uint8_t row) {
 
         obj = lv_dropdown_create(grid);
 
-        dialog_item(&dialog, obj);
+        dialog_item_voice(&dialog, obj, labels[i]);
 
         lv_obj_set_size(obj, SMALL_6, 56);
         lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, 1, 6, LV_GRID_ALIGN_CENTER, row, 1);
@@ -1009,7 +1009,7 @@ static uint8_t make_hmic_action(uint8_t row) {
 
         obj = lv_dropdown_create(grid);
 
-        dialog_item(&dialog, obj);
+        dialog_item_voice(&dialog, obj, items[i].label);
 
         lv_obj_set_size(obj, SMALL_6, 56);
         lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, 1, 6, LV_GRID_ALIGN_CENTER, row, 1);
@@ -1087,7 +1087,7 @@ static uint8_t make_audio_gain(uint8_t row) {
     lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(cell);
 
-    slider_with_text(cell, params.play_gain_db_f.x, -10.0f, 10.0f, 1.0f, SMALL_3 - 30 - 65, "%.1f", play_gain_update_cb);
+    slider_with_text(cell, params.play_gain_db_f.x, -10.0f, 10.0f, 1.0f, SMALL_3 - 30 - 65, "%.1f", play_gain_update_cb, nullptr, "Play gain");
 
     cell = lv_obj_create(grid);
 
@@ -1097,7 +1097,7 @@ static uint8_t make_audio_gain(uint8_t row) {
     lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(cell);
 
-    slider_with_text(cell, params.rec_gain_db_f.x, -10.0f, 10.0f, 1.0f, SMALL_3 - 30 - 65, "%.1f", rec_gain_update_cb);
+    slider_with_text(cell, params.rec_gain_db_f.x, -10.0f, 10.0f, 1.0f, SMALL_3 - 30 - 65, "%.1f", rec_gain_update_cb, nullptr, "Record gain");
 
     return row + 1;
 }
@@ -1138,7 +1138,7 @@ static uint8_t make_transverter(uint8_t row, uint8_t n) {
 
     obj = lv_spinbox_create(grid);
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, "Transverter from");
 
     lv_spinbox_set_value(obj, subject_get_int(transverter->from.val) / 1000000L);
     lv_spinbox_set_range(obj, 70, 500);
@@ -1153,7 +1153,7 @@ static uint8_t make_transverter(uint8_t row, uint8_t n) {
 
     obj = lv_spinbox_create(grid);
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, "Transverter to");
 
     lv_spinbox_set_value(obj, subject_get_int(transverter->to.val) / 1000000L);
     lv_spinbox_set_range(obj, 70, 500);
@@ -1168,7 +1168,7 @@ static uint8_t make_transverter(uint8_t row, uint8_t n) {
 
     obj = lv_spinbox_create(grid);
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, "Transverter shift");
 
     lv_spinbox_set_value(obj, subject_get_int(transverter->shift.val) / 1000000L);
     lv_spinbox_set_range(obj, 42, 500);
@@ -1291,7 +1291,7 @@ static uint8_t make_auto_offset(uint8_t row) {
     lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(obj);
-    obj = switch_bool(obj, cfg.auto_level_enabled.val);
+    obj = switch_bool(obj, cfg.auto_level_enabled.val, "Auto level");
     lv_obj_add_event_cb(obj, auto_level_enabled_voice_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_set_width(obj, SMALL_3 - 30);
 
@@ -1303,7 +1303,8 @@ static uint8_t make_auto_offset(uint8_t row) {
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(obj);
     obj = slider_with_text(obj, subject_get_float(cfg.auto_level_offset.val), -15.0f, 15.0f, AUTO_LEVEL_STEP,
-                           SMALL_3 - 120, "%0.1f", auto_level_offset_update_cb, (void *)cfg.auto_level_offset.val);
+                           SMALL_3 - 120, "%0.1f", auto_level_offset_update_cb, (void *)cfg.auto_level_offset.val,
+                           "Auto level offset");
     lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_FOCUSED, NULL);
     lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_DEFOCUSED, NULL);
 
@@ -1341,7 +1342,7 @@ uint8_t make_spectrum_min_max(uint8_t row) {
     lv_obj_center(cell);
 
     obj = slider_with_text(cell, subject_get_int(cfg_cur.band->grid.min.val), S_MIN, S7, 1, SMALL_3 - 120, "%d",
-                           spectrum_min_max_update_cb, (void *)cfg_cur.band->grid.min.val);
+                           spectrum_min_max_update_cb, (void *)cfg_cur.band->grid.min.val, "Spectrum minimum");
 
     lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_FOCUSED, NULL);
     lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_DEFOCUSED, NULL);
@@ -1355,7 +1356,7 @@ uint8_t make_spectrum_min_max(uint8_t row) {
     lv_obj_center(cell);
 
     obj = slider_with_text(cell, subject_get_int(cfg_cur.band->grid.max.val), S8, S9_40, 1, SMALL_3 - 120, "%d",
-                           spectrum_min_max_update_cb, (void *)cfg_cur.band->grid.max.val);
+                           spectrum_min_max_update_cb, (void *)cfg_cur.band->grid.max.val, "Spectrum maximum");
 
     lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_FOCUSED, NULL);
     lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_DEFOCUSED, NULL);
@@ -1529,7 +1530,7 @@ static uint8_t make_knob_info(uint8_t row) {
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(obj);
 
-    obj = switch_bool(obj, cfg.knob_info.val);
+    obj = switch_bool(obj, cfg.knob_info.val, "Knob info");
 
     lv_obj_set_width(obj, SMALL_3 - 30);
 
@@ -1565,7 +1566,7 @@ static uint8_t make_sp_mode(uint8_t row) {
 
     obj = lv_switch_create(obj);
 
-    dialog_item(&dialog, obj);
+    dialog_item_voice(&dialog, obj, "Speaker mode");
 
     lv_obj_center(obj);
     lv_obj_add_event_cb(obj, sp_mode_update_cb, LV_EVENT_VALUE_CHANGED, NULL);
@@ -1613,7 +1614,8 @@ static uint8_t make_comp_th_makeup(uint8_t row) {
 
     slider_with_text(cell, subject_get_float(cfg.comp_threshold_offset.val),
         -15.0f, 15.0f, COMP_TH_MAKEUP_STEP,
-        SMALL_3 - 120, "%0.1f", comp_th_gain_update_cb, (void*)cfg.comp_threshold_offset.val);
+        SMALL_3 - 120, "%0.1f", comp_th_gain_update_cb, (void*)cfg.comp_threshold_offset.val,
+        "Compressor threshold");
 
     cell = lv_obj_create(grid);
 
@@ -1625,7 +1627,8 @@ static uint8_t make_comp_th_makeup(uint8_t row) {
 
     slider_with_text(cell, subject_get_float(cfg.comp_makeup_offset.val),
         -15.0f, 15.0f, COMP_TH_MAKEUP_STEP,
-        SMALL_3 - 120, "%0.1f", comp_th_gain_update_cb, (void*)cfg.comp_makeup_offset.val);
+        SMALL_3 - 120, "%0.1f", comp_th_gain_update_cb, (void*)cfg.comp_makeup_offset.val,
+        "Compressor makeup");
 
     return row + 1;
 }
@@ -1671,7 +1674,7 @@ static uint8_t make_tx_offset(uint8_t row) {
 
     slider = slider_with_text(cell, subject_get_int(cfg_cur.band->tx_i_offset.val) / TX_OFFSET_SCALE,
         -10000 / TX_OFFSET_SCALE, 10000 / TX_OFFSET_SCALE, 1,
-        SMALL_3 - 110, "%d", tx_iq_offset_update_cb, (void*)cfg_cur.band->tx_i_offset.val);
+        SMALL_3 - 110, "%d", tx_iq_offset_update_cb, (void*)cfg_cur.band->tx_i_offset.val, "TX I offset");
 
     observer = cfg_cur.band->tx_i_offset.val->subscribe(on_iq_change, slider);
     observers.push_back(observer);
@@ -1686,7 +1689,7 @@ static uint8_t make_tx_offset(uint8_t row) {
 
     slider = slider_with_text(cell, subject_get_int(cfg_cur.band->tx_q_offset.val) / TX_OFFSET_SCALE,
         -10000 / TX_OFFSET_SCALE, 10000 / TX_OFFSET_SCALE, 1,
-        SMALL_3 - 110, "%d", tx_iq_offset_update_cb, (void*)cfg_cur.band->tx_q_offset.val);
+        SMALL_3 - 110, "%d", tx_iq_offset_update_cb, (void*)cfg_cur.band->tx_q_offset.val, "TX Q offset");
 
     observer = cfg_cur.band->tx_q_offset.val->subscribe(on_iq_change, slider);
     observers.push_back(observer);
@@ -1726,7 +1729,7 @@ static uint8_t make_codec_gain(uint8_t row) {
 
     slider_with_text(cell, subject_get_float(cfg.output_gain.val),
         -25.0f, 25.0f, OUTPUT_GAIN_STEP,
-        SMALL_6 - 120, "%0.1f", codec_gain_update_cb);
+        SMALL_6 - 120, "%0.1f", codec_gain_update_cb, nullptr, "TX codec gain");
 
     return row + 1;
 }
@@ -1770,7 +1773,7 @@ static uint8_t band_out_gain_correction(uint8_t row) {
 
     slider = slider_with_text(cell, subject_get_float(cfg_cur.band->dac_offset.val),
         -6.0f, 6.0f, OUTPUT_GAIN_STEP,
-        SMALL_6 - 120, "%0.1f", band_out_gain_update_cb);
+        SMALL_6 - 120, "%0.1f", band_out_gain_update_cb, nullptr, "Band output gain correction");
 
     Observer *observer = cfg_cur.band->dac_offset.val->subscribe(on_dac_gain_change, slider);
     observers.push_back(observer);
@@ -1796,7 +1799,7 @@ uint8_t make_fm_emphasis(uint8_t row) {
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(obj);
 
-    obj = switch_bool(obj, cfg.fm_emphasis.val);
+    obj = switch_bool(obj, cfg.fm_emphasis.val, "FM emphasis");
 
     lv_obj_set_width(obj, SMALL_3 - 30);
 
@@ -1846,7 +1849,7 @@ uint8_t make_tx_filter(uint8_t row) {
 
     slider_with_text(cell, subject_get_int(cfg.tx_filter_low.val),
         50, 400, TX_FILTER_STEP,
-        SMALL_6 - 150, "%d", tx_filter_low_update_cb);
+        SMALL_6 - 150, "%d", tx_filter_low_update_cb, nullptr, "TX filter low");
     row++;
 
     cell = lv_label_create(grid);
@@ -1864,7 +1867,7 @@ uint8_t make_tx_filter(uint8_t row) {
 
     slider_with_text(cell, subject_get_int(cfg.tx_filter_high.val),
         2000, 4000, TX_FILTER_STEP,
-        SMALL_6 - 150, "%d", tx_filter_high_update_cb);
+        SMALL_6 - 150, "%d", tx_filter_high_update_cb, nullptr, "TX filter high");
     row++;
 
     return row;
@@ -1906,7 +1909,7 @@ uint8_t make_cessb(uint8_t row) {
     lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(cell);
 
-    obj = switch_bool(cell, cfg.cessb.on.val);
+    obj = switch_bool(cell, cfg.cessb.on.val, "CESSB");
     lv_obj_set_width(obj, SMALL_2 - 30);
 
 
@@ -1920,7 +1923,8 @@ uint8_t make_cessb(uint8_t row) {
     lv_obj_center(cell);
 
     obj = slider_with_text(cell, subject_get_float(cfg.cessb.power_up.val), 0.0f, 5.0f, CESSB_POWER_UP_STEP,
-                           SMALL_3 - 40, "%0.1f", cessb_power_up_update_cb, (void *)cfg.cessb.power_up.val);
+                           SMALL_3 - 40, "%0.1f", cessb_power_up_update_cb, (void *)cfg.cessb.power_up.val,
+                           "CESSB level");
 
     row++;
 

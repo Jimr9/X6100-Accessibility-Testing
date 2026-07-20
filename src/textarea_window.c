@@ -11,6 +11,9 @@
 #include "keyboard.h"
 #include "textarea_window.h"
 #include "styles.h"
+#include "voice.h"
+
+#include <string.h>
 
 static lv_obj_t             *window = NULL;
 static lv_obj_t             *label = NULL;
@@ -35,7 +38,47 @@ static void cancel() {
         cancel_cb = NULL;
     }
 
+    voice_say_text_fmt("Cancelled");
     textarea_window_close();
+}
+
+/**
+ * Speak the character just typed/removed on the on-screen keyboard, the
+ * same way dialog_freq.c speaks each typed digit - so encoder-driven
+ * (non-touch) text entry gives feedback instead of being silent.
+ */
+static void keyboard_char_voice_cb(lv_event_t * e) {
+    lv_obj_t *obj    = lv_event_get_target(e);
+    uint16_t  btn_id = lv_btnmatrix_get_selected_btn(obj);
+    if (btn_id == LV_BTNMATRIX_BTN_NONE) {
+        return;
+    }
+    const char *txt = lv_btnmatrix_get_btn_text(obj, btn_id);
+    if (txt == NULL) {
+        return;
+    }
+
+    if (strcmp(txt, LV_SYMBOL_BACKSPACE) == 0) {
+        voice_delay_say_text_fmt("backspace");
+    } else if (strcmp(txt, LV_SYMBOL_NEW_LINE) == 0 || strcmp(txt, LV_SYMBOL_OK) == 0) {
+        voice_delay_say_text_fmt("enter");
+    } else if (strcmp(txt, LV_SYMBOL_KEYBOARD) == 0) {
+        voice_delay_say_text_fmt("close keyboard");
+    } else if (strcmp(txt, LV_SYMBOL_LEFT) == 0) {
+        voice_delay_say_text_fmt("left");
+    } else if (strcmp(txt, LV_SYMBOL_RIGHT) == 0) {
+        voice_delay_say_text_fmt("right");
+    } else if (strcmp(txt, " ") == 0) {
+        voice_delay_say_text_fmt("space");
+    } else if (strcmp(txt, "1#") == 0) {
+        voice_delay_say_text_fmt("numbers");
+    } else if (strcmp(txt, "ABC") == 0) {
+        voice_delay_say_text_fmt("uppercase");
+    } else if (strcmp(txt, "abc") == 0) {
+        voice_delay_say_text_fmt("lowercase");
+    } else {
+        voice_delay_say_text_fmt("%s", txt);
+    }
 }
 
 static void text_cb(lv_event_t * e) {
@@ -151,6 +194,7 @@ lv_obj_t * textarea_window_open(textarea_window_cb_t ok, textarea_window_cb_t ca
         lv_obj_add_event_cb(keyboard, keyboard_cb, LV_EVENT_READY, NULL);
         lv_obj_add_event_cb(keyboard, keyboard_cb, LV_EVENT_CANCEL, NULL);
         lv_obj_add_event_cb(keyboard, keyboard_cb, LV_EVENT_KEY, NULL);
+        lv_obj_add_event_cb(keyboard, keyboard_char_voice_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
         lv_obj_set_style_bg_color(keyboard, bg_color, LV_PART_MAIN);
         lv_obj_add_style(keyboard, &dialog_item_focus_style, LV_STATE_FOCUSED | LV_PART_ITEMS);

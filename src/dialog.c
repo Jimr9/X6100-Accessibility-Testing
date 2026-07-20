@@ -14,6 +14,7 @@
 #include "events.h"
 #include "waterfall.h"
 #include "knobs.h"
+#include "voice.h"
 
 static lv_obj_t     *obj;
 static dialog_t     *current_dialog = NULL;
@@ -112,6 +113,39 @@ void dialog_item(dialog_t *dialog, lv_obj_t *obj) {
     if (dialog->key_cb) {
         lv_obj_add_event_cb(obj, dialog->key_cb, LV_EVENT_KEY, NULL);
     }
+}
+
+/**
+ * Announce a dialog control's name and current value when it receives
+ * focus, so encoder/keypad navigation is as informative as touch. Reuses
+ * the same voice_say_* functions/convention used everywhere else in the
+ * firmware - not a separate accessibility system.
+ */
+static void focus_voice_cb(lv_event_t *e) {
+    const char *name = (const char *)lv_event_get_user_data(e);
+    if (!name) {
+        return;
+    }
+    lv_obj_t *obj = lv_event_get_target(e);
+
+    if (lv_obj_check_type(obj, &lv_switch_class)) {
+        voice_say_bool(name, lv_obj_has_state(obj, LV_STATE_CHECKED));
+    } else if (lv_obj_check_type(obj, &lv_dropdown_class)) {
+        char buf[64];
+        lv_dropdown_get_selected_str(obj, buf, sizeof(buf));
+        voice_say_text(name, buf);
+    } else if (lv_obj_check_type(obj, &lv_spinbox_class)) {
+        voice_say_int(name, lv_spinbox_get_value(obj));
+    } else if (lv_obj_check_type(obj, &lv_slider_class)) {
+        voice_say_int(name, lv_slider_get_value(obj));
+    } else {
+        voice_say_text_fmt("%s", name);
+    }
+}
+
+void dialog_item_voice(dialog_t *dialog, lv_obj_t *obj, const char *name) {
+    dialog_item(dialog, obj);
+    lv_obj_add_event_cb(obj, focus_voice_cb, LV_EVENT_FOCUSED, (void *)name);
 }
 
 bool dialog_need_audio() {

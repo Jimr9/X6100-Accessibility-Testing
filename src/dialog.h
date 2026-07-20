@@ -43,6 +43,7 @@ bool dialog_type_is_run(dialog_t *dialog);
 
 lv_obj_t * dialog_init(lv_obj_t *parent);
 void dialog_item(dialog_t *dialog, lv_obj_t *obj);
+void dialog_item_voice(dialog_t *dialog, lv_obj_t *obj, const char *name);
 
 bool dialog_need_audio();
 void dialog_audio_samples(unsigned int n, float *samples);
