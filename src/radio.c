@@ -30,6 +30,7 @@
 #include "dialog_swrscan.h"
 #include "cw.h"
 #include "pubsub_ids.h"
+#include "voice.h"
 
 /*********************
  *      DEFINES
@@ -805,6 +806,7 @@ static bool radio_tick() {
 
                     // TODO: change with observer on atu->loaded change
                     WITH_RADIO_LOCK(x6100_control_cmd(x6100_atu_network, pack->atu_params));
+                    voice_say_text_fmt("Auto tuner tuning complete");
                     state = RADIO_RX;
                 } else if (pack->flag.tx) {
                     tx_info_update(pack->tx_power * 0.1f, pack->vswr * 0.1f, pack->alc_level * 0.1f);
