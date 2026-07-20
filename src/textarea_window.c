@@ -274,14 +274,23 @@ lv_obj_t * textarea_window_open(textarea_window_cb_t ok, textarea_window_cb_t ca
     lv_group_add_obj(keyboard_group, text);
 
     if (keyboard) {
-        // Explicitly focus the on-screen keyboard rather than relying on
-        // whatever the group's focus happened to already be (which
-        // differed by caller - Wi-Fi's password flow removes its network
-        // list from the group right before this, which incidentally left
-        // focus on the keyboard; Callsign/QTH don't do that, so focus
-        // stayed on the textarea, and the encoder needed an extra push to
-        // reach the keyboard). This makes it consistent everywhere.
+        // Explicitly focus the on-screen keyboard AND put the group into
+        // editing mode, rather than relying on whatever the group's focus/
+        // editing state happened to already be. Encoder rotation is only
+        // forwarded into a focused complex widget (like this keyboard's
+        // button matrix) when the group is in editing mode - otherwise
+        // rotation just tries to move focus between group members instead,
+        // which does nothing useful here. Wi-Fi's password flow appeared to
+        // work before only by accident: it removes its network list (which
+        // explicitly sets editing=true elsewhere) from the group right
+        // before this, and that editing=true happened to still be set on
+        // the group afterward since nothing reset it. Callsign/QTH never
+        // had that accidental carryover, hence the extra push. Note
+        // lv_group_focus_obj() itself always forces editing back to false
+        // as a side effect, so it must be called first, and editing set to
+        // true after it, not the other way round.
         lv_group_focus_obj(keyboard);
+        lv_group_set_editing(keyboard_group, true);
     }
 
     return window;

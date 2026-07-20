@@ -120,6 +120,7 @@ static radio_state_t    state = RADIO_RX;
 static uint64_t         now_time;
 static uint64_t         prev_time;
 static uint64_t         idle_time;
+static float             last_atu_vswr = 0.0f;
 static bool             mute = false;
 
 static cfloat           samples_buf[RADIO_SAMPLES*2];
@@ -806,9 +807,14 @@ static bool radio_tick() {
 
                     // TODO: change with observer on atu->loaded change
                     WITH_RADIO_LOCK(x6100_control_cmd(x6100_atu_network, pack->atu_params));
-                    voice_say_text_fmt("Auto tuner tuning complete");
+                    voice_say_text_fmt("Auto tuner tuning complete, S W R %.1f to 1", last_atu_vswr);
                     state = RADIO_RX;
                 } else if (pack->flag.tx) {
+                    // pack->vswr is only meaningful while flag.tx is set - by
+                    // the completion packet above (!pack->flag.tx) it's
+                    // already stale, so the last live reading is captured
+                    // here to speak alongside the completion announcement.
+                    last_atu_vswr = pack->vswr * 0.1f;
                     tx_info_update(pack->tx_power * 0.1f, pack->vswr * 0.1f, pack->alc_level * 0.1f);
                 }
                 break;

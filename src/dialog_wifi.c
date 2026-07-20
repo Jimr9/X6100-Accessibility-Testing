@@ -145,7 +145,18 @@ static void construct_cb(lv_obj_t *parent) {
         // auto-refreshes while an actively-requested scan is running (see
         // start_scan_cb/update_aps_table_cb), stopping itself the moment
         // that scan completes.
-        update_aps_table_cb(NULL);
+        //
+        // This must NOT call update_aps_table_cb() synchronously here: it
+        // touches ap_table, which this function only creates further down
+        // below. Calling it early hits ap_table before it's (re)created -
+        // NULL the first time this dialog is ever opened, a dangling
+        // pointer to the previous session's already-deleted table on every
+        // open after that. Scheduling it as a one-shot timer (matching the
+        // delay the working code always used) lets construct_cb finish
+        // creating ap_table first, since the timer can't fire until after
+        // this function returns and the event loop ticks again.
+        lv_timer_t *initial_refresh = lv_timer_create(update_aps_table_cb, 1000, NULL);
+        lv_timer_set_repeat_count(initial_refresh, 1);
     }
 
     // Container
