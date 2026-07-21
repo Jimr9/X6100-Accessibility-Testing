@@ -333,19 +333,44 @@ void dialog_swrscan_run_cb(button_item_t *item) {
         if (measured == 0) {
             voice_say_text_fmt("Scan stopped, no data collected");
         } else {
-            float    best_vswr  = data[0];
-            uint16_t best_index = 0;
+            float    best_vswr   = data[0];
+            uint16_t best_index  = 0;
+            float    worst_vswr  = data[0];
+            uint16_t worst_index = 0;
             for (uint16_t i = 1; i < measured; i++) {
                 if (data[i] < best_vswr) {
                     best_vswr  = data[i];
                     best_index = i;
                 }
+                if (data[i] > worst_vswr) {
+                    worst_vswr  = data[i];
+                    worst_index = i;
+                }
             }
-            uint32_t best_freq = freq_start + (freq_stop - freq_start) * best_index / STEPS;
+            uint32_t best_freq  = freq_start + (freq_stop - freq_start) * best_index / STEPS;
+            uint32_t worst_freq = freq_start + (freq_stop - freq_start) * worst_index / STEPS;
             uint16_t mhz, khz, hz;
+            uint16_t wmhz, wkhz, whz;
             split_freq(best_freq, &mhz, &khz, &hz);
-            voice_say_text_fmt("Scan stopped. Lowest S W R %.1f to 1 at %i megahertz %i kilohertz", best_vswr, mhz,
-                               khz);
+            split_freq(worst_freq, &wmhz, &wkhz, &whz);
+
+            // Lowest and highest SWR points give the closest thing to the
+            // shape of the curve without reading every point on it. Center
+            // index of the sweep is where you started, so that's the
+            // direct "is retuning even worth it" comparison - only include
+            // it if the scan actually reached that point.
+            uint16_t center_index = STEPS / 2;
+            if (measured > center_index) {
+                voice_say_text_fmt(
+                    "Scan stopped. Lowest S W R %.1f to 1 at %i megahertz %i kilohertz. Highest S W R %.1f to 1 at "
+                    "%i megahertz %i kilohertz. At your starting frequency, S W R %.1f to 1",
+                    best_vswr, mhz, khz, worst_vswr, wmhz, wkhz, data_filtered[center_index]);
+            } else {
+                voice_say_text_fmt(
+                    "Scan stopped. Lowest S W R %.1f to 1 at %i megahertz %i kilohertz. Highest S W R %.1f to 1 at "
+                    "%i megahertz %i kilohertz",
+                    best_vswr, mhz, khz, worst_vswr, wmhz, wkhz);
+            }
         }
 
         radio_set_freq(freq_center);
@@ -355,12 +380,14 @@ void dialog_swrscan_run_cb(button_item_t *item) {
         do_init();
         radio_set_freq(freq_start);
         run = radio_start_swrscan();
+        voice_say_text_fmt("Scan started");
     }
 }
 
 void dialog_swrscan_scale_cb(button_item_t *item) {
     bool new_val = !subject_get_int(cfg.swrscan_linear.val);
     subject_set_int(cfg.swrscan_linear.val, new_val);
+    voice_say_text_fmt("Scale %s", new_val ? "Linear" : "Log");
 }
 
 void dialog_swrscan_span_cb(button_item_t *item) {
@@ -388,6 +415,7 @@ void dialog_swrscan_span_cb(button_item_t *item) {
             break;
     }
     subject_set_int(cfg.swrscan_span.val, span);
+    voice_say_text_fmt("Span %i kilohertz", span / 1000);
 
     do_init();
     event_send(chart, LV_EVENT_REFRESH, NULL);

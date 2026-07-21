@@ -20,6 +20,7 @@
 #include "msg.h"
 #include "buttons.h"
 #include "scheduler.h"
+#include "voice.h"
 
 #include <aether_radio/x6100_control/control.h>
 
@@ -49,10 +50,12 @@ static int16_t              samples_buf[BUF_SIZE];
 
 static int32_t              level_db;
 static lv_timer_t           *level_timer;
+static uint16_t              last_spoken_row = LV_TABLE_CELL_NONE;
 
 static void construct_cb(lv_obj_t *parent);
 static void destruct_cb();
 static void key_cb(lv_event_t * e);
+static void cell_selected_cb(lv_event_t * e);
 static void load_btn_page();
 
 static void update_level_cb(lv_timer_t * timer);
@@ -240,8 +243,11 @@ static bool textarea_window_edit_ok_cb() {
         snprintf(new, sizeof(new), "%s/%s", recorder_path, new_filename);
 
         if (rename(prev, new) == 0) {
+            voice_say_text_fmt("Renamed to %s", new_filename);
             load_table();
             textarea_window_close_cb();
+        } else {
+            voice_say_text_fmt("Rename failed");
         }
     } else {
         free(prev_filename);
@@ -290,8 +296,11 @@ static void construct_cb(lv_obj_t *parent) {
     lv_obj_set_style_bg_opa(table, 128, LV_PART_ITEMS | LV_STATE_EDITED);
 
     lv_obj_add_event_cb(table, key_cb, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(table, cell_selected_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_group_add_obj(keyboard_group, table);
     lv_group_set_editing(keyboard_group, true);
+
+    last_spoken_row = LV_TABLE_CELL_NONE;
 
     // lv_obj_center(table);
     // lv_obj_set_align(table, LV_ALIGN_TOP_MID);
@@ -372,16 +381,45 @@ static void key_cb(lv_event_t * e) {
     }
 }
 
+/* Speak whichever recorded file is currently selected, so the list is
+ * browsable by ear the same way the FT8 table and Wi-Fi list are. */
+static void cell_selected_cb(lv_event_t * e) {
+    uint16_t row, col;
+    lv_table_get_selected_cell(table, &row, &col);
+
+    if (row == LV_TABLE_CELL_NONE) {
+        last_spoken_row = LV_TABLE_CELL_NONE;
+        return;
+    }
+    if (row == last_spoken_row) return;
+    last_spoken_row = row;
+
+    const char *name = lv_table_get_cell_value(table, row, col);
+    if (name && name[0]) {
+        voice_say_text_fmt("%s", name);
+    } else {
+        voice_say_text_fmt("No recordings");
+    }
+}
+
 static void dialog_recorder_rec_cb(button_item_t *item) {
     recorder_set_on(true);
+    voice_say_text_fmt("Recording");
 }
 
 static void rec_stop_cb(button_item_t *item) {
     recorder_set_on(false);
     load_table();
+    voice_say_text_fmt("Recording stopped");
 }
 
 static void dialog_recorder_play_cb(button_item_t *item) {
+    const char *name = get_item();
+    if (!name) {
+        voice_say_text_fmt("No recording selected");
+        return;
+    }
+    voice_say_text_fmt("Playing %s", name);
     pthread_create(&thread, NULL, play_thread, NULL);
 
     buttons_unload_page();
@@ -390,15 +428,22 @@ static void dialog_recorder_play_cb(button_item_t *item) {
 
 static void play_stop_cb(button_item_t *item) {
     play_state = false;
+    voice_say_text_fmt("Playback stopped");
 }
 
 static void dialog_recorder_rename_cb(button_item_t *item) {
-    prev_filename = strdup(get_item());
+    const char *name = get_item();
+    if (!name) {
+        voice_say_text_fmt("No recording selected");
+        return;
+    }
+    prev_filename = strdup(name);
 
     if (prev_filename) {
         lv_group_remove_obj(table);
         textarea_window_open(textarea_window_edit_ok_cb, textarea_window_close_cb);
         textarea_window_set(prev_filename);
+        voice_say_text_fmt("Enter new name");
     }
 }
 
@@ -407,13 +452,20 @@ static void dialog_recorder_delete_cb(button_item_t *item) {
 
     if (name) {
         char filename[64];
+        char name_copy[64];
+
+        strncpy(name_copy, name, sizeof(name_copy) - 1);
+        name_copy[sizeof(name_copy) - 1] = '\0';
 
         strcpy(filename, recorder_path);
         strcat(filename, "/");
-        strcat(filename, name);
+        strcat(filename, name_copy);
 
         unlink(filename);
         load_table();
+        voice_say_text_fmt("Deleted %s", name_copy);
+    } else {
+        voice_say_text_fmt("No recording selected");
     }
 }
 

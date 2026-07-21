@@ -24,17 +24,20 @@
 #include "msg.h"
 #include "buttons.h"
 #include "main_screen.h"
+#include "voice.h"
 
 static uint32_t         *ids = NULL;
 
 static lv_obj_t         *table;
 static int16_t          table_rows = 0;
+static uint16_t         last_spoken_row = LV_TABLE_CELL_NONE;
 
 
 static void init();
 static void construct_cb(lv_obj_t *parent);
 static void destruct_cb();
 static void key_cb(lv_event_t * e);
+static void cell_selected_cb(lv_event_t * e);
 static void send_stop_cb(button_item_t *item);
 static void beacon_stop_cb(button_item_t *item);
 
@@ -183,6 +186,7 @@ static void construct_cb(lv_obj_t *parent) {
     lv_obj_set_style_bg_opa(table, 128, LV_PART_ITEMS | LV_STATE_EDITED);
 
     lv_obj_add_event_cb(table, key_cb, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(table, cell_selected_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_group_add_obj(keyboard_group, table);
     lv_group_set_editing(keyboard_group, true);
 
@@ -190,6 +194,7 @@ static void construct_cb(lv_obj_t *parent) {
 
     table_rows = 0;
     ids = NULL;
+    last_spoken_row = LV_TABLE_CELL_NONE;
 
     params_msg_cw_load();
     main_screen_lock_mode(true);
@@ -229,6 +234,27 @@ static void key_cb(lv_event_t * e) {
     }
 }
 
+/* Speak whichever stored CW message is currently selected, so the list is
+ * browsable by ear the same way the FT8 table and Wi-Fi list are. */
+static void cell_selected_cb(lv_event_t * e) {
+    uint16_t row, col;
+    lv_table_get_selected_cell(table, &row, &col);
+
+    if (row == LV_TABLE_CELL_NONE) {
+        last_spoken_row = LV_TABLE_CELL_NONE;
+        return;
+    }
+    if (row == last_spoken_row) return;
+    last_spoken_row = row;
+
+    const char *val = lv_table_get_cell_value(table, row, col);
+    if (val && val[0]) {
+        voice_say_text_fmt("%s", val);
+    } else {
+        voice_say_text_fmt("No messages");
+    }
+}
+
 static bool textarea_window_close_cb() {
     lv_group_add_obj(keyboard_group, table);
     lv_group_set_editing(keyboard_group, true);
@@ -236,7 +262,9 @@ static bool textarea_window_close_cb() {
 }
 
 static bool textarea_window_new_ok_cb() {
-    params_msg_cw_new(textarea_window_get());
+    const char *val = textarea_window_get();
+    params_msg_cw_new(val);
+    voice_say_text_fmt("Message added, %s", val);
     return textarea_window_close_cb();
 }
 
@@ -248,6 +276,7 @@ static bool textarea_window_edit_ok_cb() {
     lv_table_get_selected_cell(table, &row, &col);
     lv_table_set_cell_value(table, row, col, val);
     params_msg_cw_edit(ids[row], val);
+    voice_say_text_fmt("Message updated, %s", val);
     return textarea_window_close_cb();
 }
 
@@ -280,6 +309,12 @@ void dialog_msg_cw_append(uint32_t id, const char *val) {
 void dialog_msg_cw_send_cb(button_item_t *item) {
     const char *msg = get_msg();
 
+    if (!msg) {
+        voice_say_text_fmt("No message selected");
+        return;
+    }
+
+    voice_say_text_fmt("Sending %s", msg);
     cw_encoder_send(msg, false);
     buttons_unload_page();
     buttons_load(1, &btn_send_stop);
@@ -289,11 +324,18 @@ static void send_stop_cb(button_item_t *item) {
     cw_encoder_stop();
     buttons_unload_page();
     buttons_load_page(&buttons_page_msg_cw_1);
+    voice_say_text_fmt("Send stopped");
 }
 
 void dialog_msg_cw_beacon_cb(button_item_t *item) {
     const char *msg = get_msg();
 
+    if (!msg) {
+        voice_say_text_fmt("No message selected");
+        return;
+    }
+
+    voice_say_text_fmt("Beacon started, %s", msg);
     cw_encoder_send(msg, true);
     buttons_unload_page();
     buttons_load(2, &btn_beacon_stop);
@@ -303,6 +345,7 @@ static void beacon_stop_cb(button_item_t *item) {
     cw_encoder_stop();
     buttons_unload_page();
     buttons_load_page(&buttons_page_msg_cw_1);
+    voice_say_text_fmt("Beacon stopped");
 }
 
 void dialog_msg_cw_period_cb(button_item_t *item) {
@@ -328,11 +371,13 @@ void dialog_msg_cw_period_cb(button_item_t *item) {
 
     params_unlock(&params.dirty.cw_encoder_period);
     msg_update_text_fmt("Beacon period: %i s", params.cw_encoder_period);
+    voice_say_text_fmt("Beacon period %i seconds", params.cw_encoder_period);
 }
 
 void dialog_msg_cw_new_cb(button_item_t *item) {
     lv_group_remove_obj(table);
     textarea_window_open(textarea_window_new_ok_cb, textarea_window_close_cb);
+    voice_say_text_fmt("Enter new C W message");
 }
 
 void dialog_msg_cw_edit_cb(button_item_t *item) {
@@ -342,11 +387,15 @@ void dialog_msg_cw_edit_cb(button_item_t *item) {
         lv_group_remove_obj(table);
         textarea_window_open(textarea_window_edit_ok_cb, textarea_window_close_cb);
         textarea_window_set(msg);
+        voice_say_text_fmt("Enter message");
+    } else {
+        voice_say_text_fmt("No message selected");
     }
 }
 
 void dialog_msg_cw_delete_cb(button_item_t *item) {
     if (table_rows == 0) {
+        voice_say_text_fmt("No message selected");
         return;
     }
 
@@ -356,8 +405,16 @@ void dialog_msg_cw_delete_cb(button_item_t *item) {
     lv_table_get_selected_cell(table, &row, &col);
 
     if (row != LV_TABLE_CELL_NONE) {
+        char deleted[64];
+        const char *val = lv_table_get_cell_value(table, row, col);
+        strncpy(deleted, val ? val : "", sizeof(deleted) - 1);
+        deleted[sizeof(deleted) - 1] = '\0';
+
         params_msg_cw_delete(ids[row]);
         reset();
         params_msg_cw_load();
+        voice_say_text_fmt("Deleted %s", deleted);
+    } else {
+        voice_say_text_fmt("No message selected");
     }
 }

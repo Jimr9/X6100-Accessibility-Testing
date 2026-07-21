@@ -67,6 +67,8 @@
 
 #define MAX_TX_START_DELAY 1.5f
 
+#define KM_TO_MILES 0.621371f
+
 typedef enum {
     RX_PROCESS,
     TX_PROCESS,
@@ -131,6 +133,7 @@ static const char * tx_cq_label_getter();
 static const char * tx_call_label_getter();
 static const char * hold_freq_label_getter();
 static const char * auto_label_getter();
+static const char * distance_unit_label_getter();
 
 static void show_cq_all_cb(struct button_item_t *btn);
 static void mode_ft4_ft8_cb(struct button_item_t *btn);
@@ -139,6 +142,7 @@ static void tx_call_en_dis_cb(struct button_item_t *btn);
 
 static void hold_tx_freq_cb(struct button_item_t *btn);
 static void mode_auto_cb(struct button_item_t *btn);
+static void distance_unit_cb(struct button_item_t *btn);
 static void cq_modifier_cb(struct button_item_t *btn);
 static void time_sync(struct button_item_t *btn);
 
@@ -178,6 +182,7 @@ static button_item_t button_force_save = { .type=BTN_TEXT, .label = "Force QSO\n
 static button_item_t button_page_3 = { .type=BTN_TEXT, .label = "(Page: 3:3)", .press = button_next_page_cb, .next=&btn_page_1, .voice = "FT8 page 3"};
 static button_item_t button_cq_mod = { .type=BTN_TEXT, .label = "CQ\nModifier", .press = cq_modifier_cb };
 static button_item_t button_time_sync = { .type=BTN_TEXT, .label = "Time\nSync", .press = time_sync };
+static button_item_t button_distance_unit = { .type=BTN_TEXT_FN, .label_fn = distance_unit_label_getter, .press = distance_unit_cb, .subj=&cfg.ft8_distance_miles.val };
 
 static buttons_page_t btn_page_1 = {
     {&button_page_1, &button_show_cq_all, &button_mode_ft4_ft8, &button_tx_cq_en_dis, &button_tx_call_en_dis}
@@ -188,7 +193,7 @@ static buttons_page_t btn_page_2 = {
 };
 
 static buttons_page_t btn_page_3 = {
-    {&button_page_3, &button_cq_mod, &button_time_sync}
+    {&button_page_3, &button_cq_mod, &button_time_sync, &button_distance_unit}
 };
 
 static dialog_t dialog = {
@@ -222,11 +227,16 @@ static void save_qso(const char *remote_callsign, const char *remote_grid, const
 
     if (strlen(remote_grid) >= 4) {
         double lat, lon, dist;
+        bool   miles = subject_get_int(cfg.ft8_distance_miles.val);
         qth_str_to_pos(remote_grid, &lat, &lon);
         dist = qth_pos_dist(lat, lon, cur_lat, cur_lon);
-        msg_schedule_long_text_fmt("Saved QSO de %s %d %d (%.0f km)", remote_callsign, s_snr, r_snr, dist);
-        voice_say_text_fmt("Q S O saved with %s, sent %d, received %d, %.0f kilometers", remote_callsign, s_snr,
-                           r_snr, dist);
+        if (miles) {
+            dist *= KM_TO_MILES;
+        }
+        msg_schedule_long_text_fmt("Saved QSO de %s %d %d (%.0f %s)", remote_callsign, s_snr, r_snr, dist,
+                                   miles ? "mi" : "km");
+        voice_say_text_fmt("Q S O saved with %s, sent %d, received %d, %.0f %s", remote_callsign, s_snr, r_snr, dist,
+                           miles ? "miles" : "kilometers");
     } else {
         msg_schedule_long_text_fmt("Saved QSO de %s %d %d", remote_callsign, s_snr, r_snr);
         voice_say_text_fmt("Q S O saved with %s, sent %d, received %d", remote_callsign, s_snr, r_snr);
@@ -576,6 +586,12 @@ const char *auto_label_getter() {
     return buf;
 }
 
+const char *distance_unit_label_getter() {
+    static char buf[32];
+    sprintf(buf, "Distance:\n%s", subject_get_int(cfg.ft8_distance_miles.val) ? "Miles" : "Km");
+    return buf;
+}
+
 static void show_cq_all_cb(struct button_item_t *btn) {
     if (disable_buttons) return;
     bool new_val = !subject_get_int(cfg.ft8_show_all.val);
@@ -615,6 +631,13 @@ static void hold_tx_freq_cb(struct button_item_t *btn) {
     bool new_val = !subject_get_int(cfg.ft8_hold_freq.val);
     subject_set_int(cfg.ft8_hold_freq.val, new_val);
     voice_say_text_fmt("Hold frequency %s", new_val ? "On" : "Off");
+}
+
+static void distance_unit_cb(struct button_item_t *btn) {
+    if (disable_buttons) return;
+    bool new_val = !subject_get_int(cfg.ft8_distance_miles.val);
+    subject_set_int(cfg.ft8_distance_miles.val, new_val);
+    voice_say_text_fmt("Distance in %s", new_val ? "miles" : "kilometers");
 }
 
 static void tx_cq_en_dis_cb(struct button_item_t *btn) {

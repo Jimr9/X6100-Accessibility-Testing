@@ -31,6 +31,7 @@
 #include "textarea_window.h"
 #include "msg.h"
 #include "meter.h"
+#include "voice.h"
 
 #define BUF_SIZE 1024
 
@@ -47,6 +48,7 @@ static char                 *path = "/mnt/msg";
 static lv_obj_t             *table;
 static int16_t              table_rows = 0;
 static SNDFILE              *file = NULL;
+static uint16_t             last_spoken_row = LV_TABLE_CELL_NONE;
 
 static char                 *prev_filename;
 static pthread_t            thread;
@@ -55,6 +57,7 @@ static int16_t              samples_buf[BUF_SIZE];
 static void construct_cb(lv_obj_t *parent);
 static void destruct_cb();
 static void key_cb(lv_event_t * e);
+static void cell_selected_cb(lv_event_t * e);
 static void rec_stop_cb(button_item_t *item);
 static void play_stop_cb(button_item_t *item);
 static void send_stop_cb(button_item_t *item);
@@ -377,8 +380,11 @@ static bool textarea_window_edit_ok_cb() {
         snprintf(new, sizeof(new), "%s/%s", path, new_filename);
 
         if (rename(prev, new) == 0) {
+            voice_say_text_fmt("Renamed to %s", new_filename);
             load_table();
             textarea_window_close_cb();
+        } else {
+            voice_say_text_fmt("Rename failed");
         }
     } else {
         free(prev_filename);
@@ -431,11 +437,13 @@ static void construct_cb(lv_obj_t *parent) {
     lv_obj_set_style_bg_opa(table, 128, LV_PART_ITEMS | LV_STATE_EDITED);
 
     lv_obj_add_event_cb(table, key_cb, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(table, cell_selected_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_group_add_obj(keyboard_group, table);
     lv_group_set_editing(keyboard_group, true);
 
     lv_obj_center(table);
 
+    last_spoken_row = LV_TABLE_CELL_NONE;
     mkdir(path, 0755);
     load_table();
 }
@@ -473,8 +481,35 @@ static void key_cb(lv_event_t * e) {
     }
 }
 
+/* Speak whichever recorded message file is currently selected, so the list
+ * is browsable by ear the same way the FT8 table and Wi-Fi list are. */
+static void cell_selected_cb(lv_event_t * e) {
+    uint16_t row, col;
+    lv_table_get_selected_cell(table, &row, &col);
+
+    if (row == LV_TABLE_CELL_NONE) {
+        last_spoken_row = LV_TABLE_CELL_NONE;
+        return;
+    }
+    if (row == last_spoken_row) return;
+    last_spoken_row = row;
+
+    const char *name = lv_table_get_cell_value(table, row, col);
+    if (name && name[0]) {
+        voice_say_text_fmt("%s", name);
+    } else {
+        voice_say_text_fmt("No messages recorded");
+    }
+}
+
 void dialog_msg_voice_send_cb(button_item_t *item) {
     if (state == MSG_VOICE_OFF) {
+        const char *name = get_item();
+        if (!name) {
+            voice_say_text_fmt("No message selected");
+            return;
+        }
+        voice_say_text_fmt("Sending %s", name);
         pthread_create(&thread, NULL, send_thread, NULL);
 
         buttons_unload_page();
@@ -484,21 +519,27 @@ void dialog_msg_voice_send_cb(button_item_t *item) {
 
 static void send_stop_cb(button_item_t *iteme) {
     state = MSG_VOICE_OFF;
+    voice_say_text_fmt("Send stopped");
 }
 
 void dialog_msg_voice_beacon_cb(button_item_t *item) {
     if (state == MSG_VOICE_OFF) {
-        if (get_item()) {
+        const char *name = get_item();
+        if (name) {
             beacon = VOICE_BEACON_PLAY;
             pthread_create(&thread, NULL, beacon_thread, NULL);
+            voice_say_text_fmt("Beacon started, %s", name);
 
             buttons_unload_page();
             buttons_load(2, &btn_beacon_stop);
+        } else {
+            voice_say_text_fmt("No message selected");
         }
     }
 }
 
 static void beacon_stop_cb(button_item_t *item) {
+    voice_say_text_fmt("Beacon stopped");
     switch (state) {
         case MSG_VOICE_OFF:
             pthread_cancel(thread);
@@ -542,6 +583,7 @@ void dialog_msg_voice_period_cb(button_item_t *item) {
 
     params_unlock(&params.dirty.voice_msg_period);
     msg_update_text_fmt("Beacon period: %i s", params.voice_msg_period);
+    voice_say_text_fmt("Beacon period %i seconds", params.voice_msg_period);
 }
 
 void dialog_msg_voice_rec_cb(button_item_t *item) {
@@ -549,9 +591,12 @@ void dialog_msg_voice_rec_cb(button_item_t *item) {
         if (create_file()) {
             audio_set_play_mode(AUDIO_PLAY_VOICE_REC);
             state = MSG_VOICE_RECORD;
+            voice_say_text_fmt("Recording");
 
             buttons_unload_page();
             buttons_load(1, &btn_rec_stop);
+        } else {
+            voice_say_text_fmt("Can't create file");
         }
     }
 }
@@ -564,10 +609,17 @@ static void rec_stop_cb(button_item_t *item) {
     state = MSG_VOICE_OFF;
     close_file();
     load_table();
+    voice_say_text_fmt("Recording stopped");
 }
 
 void dialog_msg_voice_play_cb(button_item_t *item) {
     if (state == MSG_VOICE_OFF) {
+        const char *name = get_item();
+        if (!name) {
+            voice_say_text_fmt("No message selected");
+            return;
+        }
+        voice_say_text_fmt("Playing %s", name);
         pthread_create(&thread, NULL, play_thread, NULL);
 
         buttons_unload_page();
@@ -577,15 +629,22 @@ void dialog_msg_voice_play_cb(button_item_t *item) {
 
 void play_stop_cb(button_item_t *item) {
     state = MSG_VOICE_OFF;
+    voice_say_text_fmt("Playback stopped");
 }
 
 void dialog_msg_voice_rename_cb(button_item_t *item) {
-    prev_filename = strdup(get_item());
+    const char *name = get_item();
+    if (!name) {
+        voice_say_text_fmt("No message selected");
+        return;
+    }
+    prev_filename = strdup(name);
 
     if (prev_filename) {
         lv_group_remove_obj(table);
         textarea_window_open(textarea_window_edit_ok_cb, textarea_window_close_cb);
         textarea_window_set(prev_filename);
+        voice_say_text_fmt("Enter new name");
     }
 }
 
@@ -594,13 +653,20 @@ void dialog_msg_voice_delete_cb(button_item_t *item) {
 
     if (name) {
         char filename[64];
+        char name_copy[64];
+
+        strncpy(name_copy, name, sizeof(name_copy) - 1);
+        name_copy[sizeof(name_copy) - 1] = '\0';
 
         strcpy(filename, path);
         strcat(filename, "/");
-        strcat(filename, name);
+        strcat(filename, name_copy);
 
         unlink(filename);
         load_table();
+        voice_say_text_fmt("Deleted %s", name_copy);
+    } else {
+        voice_say_text_fmt("No message selected");
     }
 }
 

@@ -14,6 +14,9 @@
 
 #include "../events.h"
 #include "../voice.h"
+#include "../params/params.h"
+
+#define KM_TO_MILES 0.621371f
 
 /*
  *  Cell data is owned by a fixed-size ring pool. We do NOT use LVGL's
@@ -259,9 +262,11 @@ static void draw_part_end_cb(lv_event_t *e) {
     lv_draw_label(dsc->draw_ctx, dsc->label_dsc, &area, buf, NULL);
 
     if (cd->dist > 0) {
+        bool    miles = subject_get_int(cfg.ft8_distance_miles.val);
+        int16_t dist  = miles ? (int16_t)(cd->dist * KM_TO_MILES) : cd->dist;
         area.x2 = area.x1 - 10;
         area.x1 = area.x2 - 200;
-        snprintf(buf, sizeof(buf), "%i km", cd->dist);
+        snprintf(buf, sizeof(buf), "%i %s", dist, miles ? "mi" : "km");
         lv_draw_label(dsc->draw_ctx, dsc->label_dsc, &area, buf, NULL);
     }
 }
@@ -302,7 +307,9 @@ static void cell_selected_cb(lv_event_t *e) {
     case CELL_RX_CQ:
     case CELL_RX_TO_ME:
         if (cd->dist > 0) {
-            voice_say_text_fmt("%s, %i decibels, %i kilometers", cd->text, cd->meta.local_snr, cd->dist);
+            bool    miles = subject_get_int(cfg.ft8_distance_miles.val);
+            int16_t dist  = miles ? (int16_t)(cd->dist * KM_TO_MILES) : cd->dist;
+            voice_say_text_fmt("%s, %i decibels, %i %s", cd->text, cd->meta.local_snr, dist, miles ? "miles" : "kilometers");
         } else {
             voice_say_text_fmt("%s, %i decibels", cd->text, cd->meta.local_snr);
         }
