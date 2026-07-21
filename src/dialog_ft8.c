@@ -28,6 +28,7 @@
 #include "util.h"
 #include "recorder.h"
 #include "textarea_window.h"
+#include "voice.h"
 #include "dsp.h"
 
 #include "ft8/audio_worker.h"
@@ -224,8 +225,11 @@ static void save_qso(const char *remote_callsign, const char *remote_grid, const
         qth_str_to_pos(remote_grid, &lat, &lon);
         dist = qth_pos_dist(lat, lon, cur_lat, cur_lon);
         msg_schedule_long_text_fmt("Saved QSO de %s %d %d (%.0f km)", remote_callsign, s_snr, r_snr, dist);
+        voice_say_text_fmt("Q S O saved with %s, sent %d, received %d, %.0f kilometers", remote_callsign, s_snr,
+                           r_snr, dist);
     } else {
         msg_schedule_long_text_fmt("Saved QSO de %s %d %d", remote_callsign, s_snr, r_snr);
+        voice_say_text_fmt("Q S O saved with %s, sent %d, received %d", remote_callsign, s_snr, r_snr);
     }
 
     lv_finder_clear_cursor(finder);
@@ -574,7 +578,9 @@ const char *auto_label_getter() {
 
 static void show_cq_all_cb(struct button_item_t *btn) {
     if (disable_buttons) return;
-    subject_set_int(cfg.ft8_show_all.val, !subject_get_int(cfg.ft8_show_all.val));
+    bool new_val = !subject_get_int(cfg.ft8_show_all.val);
+    subject_set_int(cfg.ft8_show_all.val, new_val);
+    voice_say_text_fmt("Show %s", new_val ? "all stations" : "C Q only");
 }
 
 static void mode_ft4_ft8_cb(struct button_item_t *btn) {
@@ -588,6 +594,7 @@ static void mode_ft4_ft8_cb(struct button_item_t *btn) {
     }
     subject_set_int(cfg.ft8_protocol.val, proto);
     subject_set_int(cq_enabled, false);
+    voice_say_text_fmt("Mode %s", proto == FTX_PROTOCOL_FT8 ? "F T 8" : "F T 4");
 
     worker_done();
     worker_init();
@@ -600,11 +607,14 @@ static void mode_auto_cb(struct button_item_t *btn) {
     bool new_val = !subject_get_int(cfg.ft8_auto.val);
     subject_set_int(cfg.ft8_auto.val, new_val);
     ftx_qso_processor_set_auto(qso_processor, new_val);
+    voice_say_text_fmt("Auto %s", new_val ? "On" : "Off");
 }
 
 static void hold_tx_freq_cb(struct button_item_t *btn) {
     if (disable_buttons) return;
-    subject_set_int(cfg.ft8_hold_freq.val, !subject_get_int(cfg.ft8_hold_freq.val));
+    bool new_val = !subject_get_int(cfg.ft8_hold_freq.val);
+    subject_set_int(cfg.ft8_hold_freq.val, new_val);
+    voice_say_text_fmt("Hold frequency %s", new_val ? "On" : "Off");
 }
 
 static void tx_cq_en_dis_cb(struct button_item_t *btn) {
@@ -613,6 +623,7 @@ static void tx_cq_en_dis_cb(struct button_item_t *btn) {
     if (!subject_get_int(cq_enabled)){
         if (strlen(params.callsign.x) == 0) {
             msg_schedule_text_fmt("Call sign required");
+            voice_say_text_fmt("Call sign required");
             return;
         }
         subject_set_int(cq_enabled, true);
@@ -630,8 +641,10 @@ static void tx_cq_en_dis_cb(struct button_item_t *btn) {
 
         if (tx_msg.msg[2] == '_') {
             msg_schedule_text_fmt("Next TX: CQ %s", tx_msg.msg + 3);
+            voice_say_text_fmt("Next transmit, C Q %s", tx_msg.msg + 3);
         } else {
             msg_schedule_text_fmt("Next TX: %s", tx_msg.msg);
+            voice_say_text_fmt("Next transmit, %s", tx_msg.msg);
         }
         tx_msg.repeats = subject_get_int(cfg.ft8_max_repeats.val);
         ftx_qso_processor_reset(qso_processor);
@@ -642,6 +655,7 @@ static void tx_cq_en_dis_cb(struct button_item_t *btn) {
         }
         subject_set_int(cq_enabled, false);
         tx_msg.msg[0] = '\0';
+        voice_say_text_fmt("TX C Q disabled");
     }
 }
 
@@ -652,14 +666,17 @@ static void tx_call_en_dis_cb(struct button_item_t *btn) {
     if (!subject_get_int(tx_enabled)) {
         if (strlen(params.callsign.x) == 0) {
             msg_schedule_text_fmt("Call sign required");
+            voice_say_text_fmt("Call sign required");
             return;
         }
         subject_set_int(tx_enabled, true);
+        voice_say_text_fmt("TX call enabled");
     } else {
         if (state == TX_PROCESS) {
             state = RX_PROCESS;
         }
         subject_set_int(tx_enabled, false);
+        voice_say_text_fmt("TX call disabled");
     }
 }
 
@@ -699,6 +716,7 @@ static void time_sync(struct button_item_t *btn) {
         LV_LOG_ERROR("Can't set system time: %s\n", strerror(errno));
         return;
     }
+    voice_say_text_fmt("Time synchronized");
 }
 
 static void force_save_qso(struct button_item_t *btn) {
@@ -706,6 +724,7 @@ static void force_save_qso(struct button_item_t *btn) {
         ftx_qso_processor_force_save_qso(qso_processor);
     } else {
         msg_schedule_text_fmt("Can't save incomplete QSO");
+        voice_say_text_fmt("Can't save incomplete Q S O");
     }
 }
 
@@ -721,6 +740,7 @@ static void on_table_press(const cell_data_t *cell_data) {
         (cell_data->cell_type == CELL_START_QSO)
     ) {
         msg_schedule_text_fmt("What should I do about it?");
+        voice_say_text_fmt("What should I do about it?");
         return;
     }
 
@@ -739,8 +759,10 @@ static void on_table_press(const cell_data_t *cell_data) {
             scheduler_put(table_view_add_msg_cb, &cd, sizeof(cell_data_t));
         }
         msg_schedule_text_fmt("Next TX: %s", tx_msg.msg);
+        voice_say_text_fmt("Next transmit, %s", tx_msg.msg);
     } else {
         msg_schedule_text_fmt("Invalid message");
+        voice_say_text_fmt("Invalid message");
         tx_call_off();
     }
 }
@@ -770,6 +792,7 @@ static void keyboard_open() {
         lv_textarea_set_placeholder_text(text, " CQ modifier");
     }
     disable_buttons = true;
+    voice_say_text_fmt("Enter C Q modifier");
 }
 
 static void keyboard_close() {
@@ -788,9 +811,15 @@ static bool keyboard_ok_cb() {
     char *cq_mod = (char *)textarea_window_get();
     if ((strlen(cq_mod) > 0) && !is_cq_modifier(cq_mod)) {
         msg_schedule_text_fmt("Unsupported CQ modifier");
+        voice_say_text_fmt("Unsupported C Q modifier");
         return false;
     }
     params_str_set(&params.ft8_cq_modifier, cq_mod);
+    if (strlen(cq_mod) > 0) {
+        voice_say_text_fmt("C Q modifier set to %s", cq_mod);
+    } else {
+        voice_say_text_fmt("C Q modifier cleared");
+    }
     keyboard_close();
     return true;
 }
@@ -877,6 +906,7 @@ static void add_rx_text(int16_t snr, const char * text, slot_info_t *s_info, flo
         }
         tx_time_slot = !s_info->odd;
         msg_schedule_text_fmt("Next TX: %s", tx_msg.msg);
+        voice_say_text_fmt("Next transmit, %s", tx_msg.msg);
         if (subject_get_int(cq_enabled)) {
             subject_set_int(cq_enabled, false);
         }

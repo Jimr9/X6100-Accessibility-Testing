@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "../events.h"
+#include "../voice.h"
 
 /*
  *  Cell data is owned by a fixed-size ring pool. We do NOT use LVGL's
@@ -43,6 +44,7 @@ static cell_data_t           *s_row_cell[TABLE_MAX_ROWS_INTERNAL]; /* row -> poo
 static lv_obj_t              *s_table      = NULL;
 static table_view_press_cb_t  s_press_cb   = NULL;
 static table_view_actions_t   s_actions    = {0};
+static uint16_t                 s_last_spoken_row = LV_TABLE_CELL_NONE;
 
 static inline cell_data_t *row_cell(uint16_t r) {
     if (r >= TABLE_MAX_ROWS_INTERNAL) return NULL;
@@ -159,6 +161,7 @@ void table_view_reset(void) {
     lv_table_set_row_cnt(s_table, 1);
     lv_table_set_cell_value(s_table, 0, 0, WAIT_SYNC_TEXT);
     s_pool_write = 0;
+    s_last_spoken_row = LV_TABLE_CELL_NONE;
 }
 
 /* -------- LVGL event plumbing ------------------------------------------ */
@@ -274,6 +277,45 @@ static void cell_press_cb(lv_event_t *e) {
     s_press_cb(cd);
 }
 
+/* Speak whichever row is currently selected, so the table is browsable by
+ * ear the same way the Wi-Fi AP list is - only when the selected row
+ * actually changes, not on every redraw/refresh, to avoid repeating the
+ * same row over and over. */
+static void cell_selected_cb(lv_event_t *e) {
+    lv_obj_t *obj = lv_event_get_target(e);
+    uint16_t  row, col;
+    lv_table_get_selected_cell(obj, &row, &col);
+    (void)col;
+
+    if (row == LV_TABLE_CELL_NONE) {
+        s_last_spoken_row = LV_TABLE_CELL_NONE;
+        return;
+    }
+    if (row == s_last_spoken_row) return;
+    s_last_spoken_row = row;
+
+    cell_data_t *cd = row_cell(row);
+    if (!cd) return;
+
+    switch (cd->cell_type) {
+    case CELL_RX_MSG:
+    case CELL_RX_CQ:
+    case CELL_RX_TO_ME:
+        if (cd->dist > 0) {
+            voice_say_text_fmt("%s, %i decibels, %i kilometers", cd->text, cd->meta.local_snr, cd->dist);
+        } else {
+            voice_say_text_fmt("%s, %i decibels", cd->text, cd->meta.local_snr);
+        }
+        break;
+    case CELL_TX_MSG:
+        voice_say_text_fmt("You sent, %s", cd->text);
+        break;
+    default:
+        voice_say_text_fmt("%s", cd->text);
+        break;
+    }
+}
+
 static void key_cb(lv_event_t *e) {
     uint32_t key = *((uint32_t *)lv_event_get_param(e));
 
@@ -297,12 +339,14 @@ static void key_cb(lv_event_t *e) {
 void table_view_build(lv_obj_t *parent, lv_coord_t x, lv_coord_t y, lv_coord_t w, lv_coord_t h) {
     s_pool_write = 0;
     s_press_cb   = NULL;
+    s_last_spoken_row = LV_TABLE_CELL_NONE;
     memset(&s_actions, 0, sizeof(s_actions));
     memset(s_row_cell, 0, sizeof(s_row_cell));
 
     s_table = lv_table_create(parent);
     lv_obj_remove_style(s_table, NULL, LV_STATE_ANY | LV_PART_MAIN);
     lv_obj_add_event_cb(s_table, cell_press_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(s_table, cell_selected_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(s_table, key_cb, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(s_table, draw_part_begin_cb, LV_EVENT_DRAW_PART_BEGIN, NULL);
     lv_obj_add_event_cb(s_table, draw_part_end_cb,   LV_EVENT_DRAW_PART_END,   NULL);
@@ -339,6 +383,7 @@ void table_view_destroy(void) {
     memset(&s_actions, 0, sizeof(s_actions));
     memset(s_row_cell, 0, sizeof(s_row_cell));
     s_pool_write = 0;
+    s_last_spoken_row = LV_TABLE_CELL_NONE;
 }
 
 lv_obj_t *table_view_obj(void) {
