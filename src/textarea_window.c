@@ -14,6 +14,7 @@
 #include "voice.h"
 
 #include <string.h>
+#include <stdio.h>
 
 static lv_obj_t             *window = NULL;
 static lv_obj_t             *label = NULL;
@@ -66,13 +67,21 @@ static void speak_keyboard_btn_text(const char *txt) {
         voice_delay_say_text_fmt("space");
     } else if (strcmp(txt, "1#") == 0) {
         voice_delay_say_text_fmt("numbers");
-    } else if (strcmp(txt, "ABC") == 0) {
-        voice_delay_say_text_fmt("uppercase");
-    } else if (strcmp(txt, "abc") == 0) {
-        voice_delay_say_text_fmt("lowercase");
     } else {
         voice_delay_say_text_fmt("%s", txt);
     }
+}
+
+/**
+ * The case-toggle key's own label always names the mode pressing it
+ * would switch TO, not the mode you're currently in (LVGL shows "ABC" on
+ * the lowercase map, i.e. "press to go uppercase", and vice versa) -
+ * confusing both to preview while navigating and to confirm after
+ * pressing. Always announce the keyboard's actual current mode instead,
+ * so "uppercase" always means you are, right now, typing uppercase.
+ */
+static void speak_case_mode(lv_obj_t *obj) {
+    voice_delay_say_text_fmt(lv_keyboard_get_mode(obj) == LV_KEYBOARD_MODE_TEXT_UPPER ? "uppercase" : "lowercase");
 }
 
 /**
@@ -91,12 +100,36 @@ static void speak_textarea_context(const char *action) {
 
     if (len == 0) {
         voice_delay_say_text_fmt("%s, empty", action);
-    } else if (cursor == 0) {
-        voice_delay_say_text_fmt("%s, start, %c", action, content[0]);
+        return;
+    }
+
+    char        c;
+    const char *where = NULL;
+    if (cursor == 0) {
+        where = "start";
+        c     = content[0];
     } else if (cursor >= len) {
-        voice_delay_say_text_fmt("%s, end, %c", action, content[len - 1]);
+        where = "end";
+        c     = content[len - 1];
     } else {
-        voice_delay_say_text_fmt("%s, %c", action, content[cursor]);
+        c = content[cursor];
+    }
+
+    // A bare "%c" sounds identical whether the character is upper or
+    // lower case - say "capital" first for uppercase letters so
+    // case-sensitive fields like Wi-Fi passwords can actually be
+    // verified by ear here, not just tracked blind while typing.
+    char letter[10];
+    if (c >= 'A' && c <= 'Z') {
+        snprintf(letter, sizeof(letter), "capital %c", c);
+    } else {
+        snprintf(letter, sizeof(letter), "%c", c);
+    }
+
+    if (where) {
+        voice_delay_say_text_fmt("%s, %s, %s", action, where, letter);
+    } else {
+        voice_delay_say_text_fmt("%s, %s", action, letter);
     }
 }
 
@@ -123,14 +156,7 @@ static void keyboard_char_voice_cb(lv_event_t * e) {
     } else if (strcmp(txt, LV_SYMBOL_RIGHT) == 0) {
         speak_textarea_context("right");
     } else if (strcmp(txt, "ABC") == 0 || strcmp(txt, "abc") == 0) {
-        // This button's own label always names the mode pressing it would
-        // switch TO, not the mode you're in - by the time this
-        // VALUE_CHANGED handler runs, LVGL's internal handler has already
-        // flipped the map, so re-reading the label here would announce
-        // the mode just left instead of the one now active. Ask the
-        // keyboard directly instead.
-        voice_delay_say_text_fmt(
-            lv_keyboard_get_mode(obj) == LV_KEYBOARD_MODE_TEXT_UPPER ? "uppercase" : "lowercase");
+        speak_case_mode(obj);
     } else {
         speak_keyboard_btn_text(txt);
     }
@@ -152,7 +178,12 @@ static void keyboard_nav_voice_cb(lv_event_t * e) {
         return;
     }
     last_nav_btn_id = btn_id;
-    speak_keyboard_btn_text(lv_btnmatrix_get_btn_text(obj, btn_id));
+    const char *txt = lv_btnmatrix_get_btn_text(obj, btn_id);
+    if (txt != NULL && (strcmp(txt, "ABC") == 0 || strcmp(txt, "abc") == 0)) {
+        speak_case_mode(obj);
+    } else {
+        speak_keyboard_btn_text(txt);
+    }
 }
 
 static void text_cb(lv_event_t * e) {

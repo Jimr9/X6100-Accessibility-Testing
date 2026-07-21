@@ -300,7 +300,12 @@ void wifi_update_connection(const char *id, const char *password) {
             nm_connection_add_setting(new_connection, NM_SETTING(s_wsec));
         }
         nm_connection_replace_settings_from_connection(NM_CONNECTION(rem_con), new_connection);
-        nm_remote_connection_commit_changes_async(rem_con, !temporary, NULL, connection_modify_cb, NULL);
+        // Pass the id through so connection_modify_cb can actually connect
+        // once the new password is saved - previously this only saved the
+        // password and the GUI separately claimed "Connecting to..." right
+        // away, which was false: nothing was actually attempting to
+        // connect until Connect got pressed again by hand.
+        nm_remote_connection_commit_changes_async(rem_con, !temporary, NULL, connection_modify_cb, g_strdup(id));
         g_object_unref(new_connection);
     } else {
         LV_LOG_ERROR("Connection %s not found", id);
@@ -537,6 +542,7 @@ static void connection_adding_and_activating_cb(GObject *client, GAsyncResult *r
 
 static void connection_modify_cb(GObject *connection, GAsyncResult *result, gpointer user_data) {
     GError *error = NULL;
+    char   *id    = (char *)user_data;
 
     if (!nm_remote_connection_commit_changes_finish(NM_REMOTE_CONNECTION(connection), result, &error)) {
         LV_LOG_ERROR(("Error: Failed to modify connection '%s': %s"), nm_connection_get_id(NM_CONNECTION(connection)),
@@ -544,7 +550,15 @@ static void connection_modify_cb(GObject *connection, GAsyncResult *result, gpoi
     } else {
         LV_LOG_USER(("Connection '%s' (%s) successfully modified.\n"), nm_connection_get_id(NM_CONNECTION(connection)),
                     nm_connection_get_uuid(NM_CONNECTION(connection)));
+        // The password (or other settings) just saved successfully -
+        // actually attempt to connect with it now, rather than leaving the
+        // caller's "Connecting to..." announcement a lie until Connect is
+        // pressed again by hand.
+        if (id) {
+            wifi_connect(id);
+        }
     }
+    g_free(id);
     g_main_loop_quit(loop);
 }
 
