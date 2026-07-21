@@ -44,6 +44,7 @@ static std::array<char, CTRL_LAST> binds;
 
 static void disp_btn_refresh(disp_btn_t *b);
 static void disp_btn_clear(disp_btn_t *b);
+static void remember_page_for_group(buttons_page_t *page);
 
 static void button_app_page_cb(button_item_t *item);
 static void button_encoder_update_cb(button_item_t *item);
@@ -499,6 +500,7 @@ buttons_group_t buttons_group_vm = {
 static struct {
     buttons_page_t **group;
     size_t           size;
+    buttons_page_t  *last_page;
 } groups[] = {
     {buttons_group_gen, ARRAY_SIZE(buttons_group_gen)},
     {buttons_group_app, ARRAY_SIZE(buttons_group_app)},
@@ -641,6 +643,7 @@ void buttons_load_page(buttons_page_t *page) {
         buttons_unload_page();
     }
     cur_page = page;
+    remember_page_for_group(page);
     for (uint8_t i = 0; i < BUTTONS; i++) {
         buttons_load(i, page->items[i]);
     }
@@ -784,10 +787,12 @@ void buttons_press(uint8_t n, bool hold) {
 }
 
 void buttons_load_page_group(buttons_group_t group) {
-    size_t group_size = 0;
+    size_t          group_size = 0;
+    buttons_page_t *remembered = NULL;
     for (size_t i = 0; i < ARRAY_SIZE(groups); i++) {
         if (groups[i].group == group) {
             group_size = groups[i].size;
+            remembered = groups[i].last_page;
             break;
         }
     }
@@ -801,8 +806,21 @@ void buttons_load_page_group(buttons_group_t group) {
             return;
         }
     }
-    // Load first
-    buttons_load_page(group[0]);
+    // Return to whichever page was last visited in this group, so switching
+    // away and back doesn't lose your place - only fall back to the first
+    // page the first time this group is ever entered.
+    buttons_load_page(remembered ? remembered : group[0]);
+}
+
+static void remember_page_for_group(buttons_page_t *page) {
+    for (size_t i = 0; i < ARRAY_SIZE(groups); i++) {
+        for (size_t j = 0; j < groups[i].size; j++) {
+            if (groups[i].group[j] == page) {
+                groups[i].last_page = page;
+                return;
+            }
+        }
+    }
 }
 
 buttons_page_t *buttons_get_cur_page() {

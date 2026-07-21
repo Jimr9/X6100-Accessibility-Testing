@@ -658,7 +658,20 @@ static void wifi_state_changed_cb(void *s, lv_msg_t *m) {
     // that off (voice_say_text_fmt cancels in-flight speech).
     if (status != last_spoken_wifi_status) {
         last_spoken_wifi_status = status;
-        if (status == WIFI_CONNECTED || status == WIFI_DISCONNECTED) {
+        if (status == WIFI_CONNECTED) {
+            // Speak the IP right alongside "Connected" instead of a separate
+            // announcement later - a second voice_say_text_fmt call would
+            // cancel this one if it landed while it was still talking.
+            char  ip_address[16];
+            char  gateway[16];
+            char *ip_addr_p = ip_address;
+            char *gateway_p = gateway;
+            if (wifi_get_ipaddr(&ip_addr_p, &gateway_p)) {
+                voice_say_text_fmt("Wifi %s, I P address %s", status_text, ip_address);
+            } else {
+                voice_say_text_fmt("Wifi %s", status_text);
+            }
+        } else if (status == WIFI_DISCONNECTED) {
             voice_say_text_fmt("Wifi %s", status_text);
         }
     }
