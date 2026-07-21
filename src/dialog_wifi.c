@@ -118,6 +118,7 @@ static bool                  disable_buttons = false;
 static enum selected_ap_type sel_ap_type = SELECTED_AP_NONE;
 static uint16_t              last_spoken_row = LV_TABLE_CELL_NONE;
 static wifi_status_t         last_spoken_wifi_status = (wifi_status_t)-1;
+static bool                  ip_announce_pending = false;
 
 static wifi_ap_info_t cur_ap_info;
 static char          *cur_password = NULL;
@@ -291,8 +292,25 @@ static void cell_selected_cb(lv_event_t *e) {
         // selected row changed, so it doesn't repeat the same AP every second.
         if (row != last_spoken_row) {
             last_spoken_row = row;
-            voice_say_text_fmt("%s, %s, %s, signal %i percent", ap_info->ssid, ap_info->known ? "known" : "new",
-                               ap_info->is_connected ? "connected" : "not connected", ap_info->strength);
+            if (ap_info->is_connected) {
+                // Also read the IP here, not just right after connecting -
+                // this is the way back to it if you missed the one-time
+                // announcement or just want to check it again later.
+                char  ip_address[16];
+                char  gateway[16];
+                char *ip_addr_p = ip_address;
+                char *gateway_p = gateway;
+                if (wifi_get_ipaddr(&ip_addr_p, &gateway_p)) {
+                    voice_say_text_fmt("%s, %s, connected, signal %i percent, I P address %s", ap_info->ssid,
+                                       ap_info->known ? "known" : "new", ap_info->strength, ip_address);
+                } else {
+                    voice_say_text_fmt("%s, %s, connected, signal %i percent", ap_info->ssid,
+                                       ap_info->known ? "known" : "new", ap_info->strength);
+                }
+            } else {
+                voice_say_text_fmt("%s, %s, not connected, signal %i percent", ap_info->ssid,
+                                   ap_info->known ? "known" : "new", ap_info->strength);
+            }
         }
     } else if (sel_ap_type != SELECTED_AP_NONE) {
         sel_ap_type     = SELECTED_AP_NONE;
@@ -610,6 +628,15 @@ static void update_status_cb(lv_timer_t *t) {
         if (res) {
             lv_label_set_text(label_ip_addr, ip_address);
             lv_label_set_text(label_gateway, gateway);
+            if (ip_announce_pending) {
+                // The IP usually isn't assigned yet at the exact instant
+                // Wi-Fi reports Connected (DHCP finishes a beat later), so
+                // this waits for the same check that already updates the
+                // on-screen label reliably, instead of guessing too early
+                // and never getting a second chance to speak it.
+                ip_announce_pending = false;
+                voice_say_text_fmt("Wifi Connected, I P address %s", ip_address);
+            }
         } else {
             lv_label_set_text(label_ip_addr, "N/A");
             lv_label_set_text(label_gateway, "N/A");
@@ -659,19 +686,15 @@ static void wifi_state_changed_cb(void *s, lv_msg_t *m) {
     if (status != last_spoken_wifi_status) {
         last_spoken_wifi_status = status;
         if (status == WIFI_CONNECTED) {
-            // Speak the IP right alongside "Connected" instead of a separate
-            // announcement later - a second voice_say_text_fmt call would
-            // cancel this one if it landed while it was still talking.
-            char  ip_address[16];
-            char  gateway[16];
-            char *ip_addr_p = ip_address;
-            char *gateway_p = gateway;
-            if (wifi_get_ipaddr(&ip_addr_p, &gateway_p)) {
-                voice_say_text_fmt("Wifi %s, I P address %s", status_text, ip_address);
-            } else {
-                voice_say_text_fmt("Wifi %s", status_text);
-            }
+            // Don't try to read the IP here - it usually isn't assigned
+            // yet at the exact instant Wi-Fi reports Connected, and this
+            // dedup check means we'd never get a second chance to announce
+            // it if that guess came up empty. update_status_cb's own
+            // check-until-consistent loop picks the moment it's really
+            // ready (see ip_announce_pending above).
+            ip_announce_pending = true;
         } else if (status == WIFI_DISCONNECTED) {
+            ip_announce_pending = false;
             voice_say_text_fmt("Wifi %s", status_text);
         }
     }
