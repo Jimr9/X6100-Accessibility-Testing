@@ -634,7 +634,7 @@ void buttons_load(uint8_t n, button_item_t *item) {
     }
 }
 
-void buttons_load_page(buttons_page_t *page) {
+static void buttons_load_page_impl(buttons_page_t *page, bool announce) {
     if (!page) {
         LV_LOG_ERROR("NULL pointer to buttons page");
         return;
@@ -647,9 +647,21 @@ void buttons_load_page(buttons_page_t *page) {
     for (uint8_t i = 0; i < BUTTONS; i++) {
         buttons_load(i, page->items[i]);
     }
-    if (page->items[0]->voice) {
+    if (announce && page->items[0]->voice) {
         voice_say_text_fmt("%s", page->items[0]->voice);
     }
+}
+
+void buttons_load_page(buttons_page_t *page) {
+    buttons_load_page_impl(page, true);
+}
+
+void buttons_load_page_quiet(buttons_page_t *page) {
+    // For callers that already speak their own confirmation right around
+    // this call (e.g. "Recording stopped") - the page's own name
+    // announcement would otherwise fire back-to-back with it, and one of
+    // the two gets silently dropped instead of both being heard.
+    buttons_load_page_impl(page, false);
 }
 
 void buttons_unload_page() {

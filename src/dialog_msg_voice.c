@@ -547,7 +547,7 @@ static void beacon_stop_cb(button_item_t *item) {
             beacon = VOICE_BEACON_OFF;
 
             buttons_unload_page();
-            buttons_load_page(&page_msg_voice_1);
+            buttons_load_page_quiet(&page_msg_voice_1);
             break;
 
         case MSG_VOICE_PLAY:
@@ -603,7 +603,7 @@ void dialog_msg_voice_rec_cb(button_item_t *item) {
 
 static void rec_stop_cb(button_item_t *item) {
     buttons_unload_page();
-    buttons_load_page(&page_msg_voice_2);
+    buttons_load_page_quiet(&page_msg_voice_2);
 
     audio_set_play_mode(AUDIO_PLAY_OFF);
     state = MSG_VOICE_OFF;

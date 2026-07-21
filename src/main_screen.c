@@ -163,8 +163,10 @@ void main_screen_start_app(press_action_t app_action) {
             break;
 
         case ACTION_APP_FT8:
+            // No extra "FT8 window" announcement here - construct_cb already
+            // loads FT8 page 1, which announces itself and would otherwise
+            // race this call (whichever one loses gets silently dropped).
             dialog_construct(dialog_ft8, obj);
-            voice_say_text_fmt("FT8 window");
             break;
 
         case ACTION_APP_GPS:
@@ -577,9 +579,12 @@ static void main_screen_keypad_cb(lv_event_t * e) {
                                 cur->items[0]->press(cur->items[0]);
                             }
                         } else {
+                            // No extra "window" announcement - the dialog's
+                            // own page 1 already announces itself and would
+                            // otherwise race this call (whichever one loses
+                            // gets silently dropped).
                             apps_disable();
                             dialog_construct(dialog_msg_cw, obj);
-                            voice_say_text_fmt("CW messages window");
                         }
                         panel_hide();
                         break;
@@ -594,15 +599,16 @@ static void main_screen_keypad_cb(lv_event_t * e) {
                                 cur->items[0]->press(cur->items[0]);
                             }
                         } else {
+                            // Same reasoning as CW messages above.
                             apps_disable();
                             dialog_construct(dialog_msg_voice, obj);
-                            voice_say_text_fmt("Voice messages window");
                         }
                         panel_hide();
                         break;
 
                     default:
                         msg_tiny_set_text_fmt("Not used in this mode");
+                        voice_say_text_fmt("Not used in this mode");
                         break;
                 }
             } else if (keypad->state == KEYPAD_LONG) {

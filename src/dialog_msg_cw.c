@@ -323,7 +323,7 @@ void dialog_msg_cw_send_cb(button_item_t *item) {
 static void send_stop_cb(button_item_t *item) {
     cw_encoder_stop();
     buttons_unload_page();
-    buttons_load_page(&buttons_page_msg_cw_1);
+    buttons_load_page_quiet(&buttons_page_msg_cw_1);
     voice_say_text_fmt("Send stopped");
 }
 
@@ -344,7 +344,7 @@ void dialog_msg_cw_beacon_cb(button_item_t *item) {
 static void beacon_stop_cb(button_item_t *item) {
     cw_encoder_stop();
     buttons_unload_page();
-    buttons_load_page(&buttons_page_msg_cw_1);
+    buttons_load_page_quiet(&buttons_page_msg_cw_1);
     voice_say_text_fmt("Beacon stopped");
 }
 

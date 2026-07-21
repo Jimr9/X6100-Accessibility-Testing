@@ -379,8 +379,14 @@ void dialog_swrscan_run_cb(button_item_t *item) {
         mem_save(MEM_BACKUP_ID);
         do_init();
         radio_set_freq(freq_start);
+        // No "Scan started" announcement here - radio_start_swrscan() keys
+        // the transmitter and reconfigures the radio's audio hardware right
+        // at this instant to sweep the band. Speaking at this exact moment
+        // appears to make the speech engine grab the audio device just as
+        // the radio takes it over for the scan, which wedges speech
+        // completely (not just here - everywhere) until a hard reset. Needs
+        // a real fix before this is safe to add back, not a quick patch.
         run = radio_start_swrscan();
-        voice_say_text_fmt("Scan started");
     }
 }
 

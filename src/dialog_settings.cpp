@@ -2161,7 +2161,11 @@ static void construct_cb(lv_obj_t *parent) {
         buttons_mark(btn, false);
     }
     buttons_mark(&btn_general, true);
-    voice_say_text_fmt("General");
+    // No "General" announcement here - main_screen.c already speaks
+    // "Settings window" right after this returns, and it would otherwise
+    // race this call (whichever one loses gets silently dropped). General
+    // is always the default first tab, so nothing is lost by staying quiet
+    // here; switching tabs afterward still announces normally.
 }
 
 static void destruct_cb() {

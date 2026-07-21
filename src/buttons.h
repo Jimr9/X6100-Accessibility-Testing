@@ -85,6 +85,7 @@ void            buttons_mark(button_item_t *item, bool val);
 void            buttons_disabled(button_item_t *item, bool val);
 void            buttons_load(uint8_t n, button_item_t *item);
 void            buttons_load_page(buttons_page_t *page);
+void            buttons_load_page_quiet(buttons_page_t *page);
 void            buttons_unload_page();
 void            button_next_page_cb(button_item_t *item);
 void            button_prev_page_cb(button_item_t *item);
