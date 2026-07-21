@@ -122,6 +122,15 @@ static void keyboard_char_voice_cb(lv_event_t * e) {
         speak_textarea_context("left");
     } else if (strcmp(txt, LV_SYMBOL_RIGHT) == 0) {
         speak_textarea_context("right");
+    } else if (strcmp(txt, "ABC") == 0 || strcmp(txt, "abc") == 0) {
+        // This button's own label always names the mode pressing it would
+        // switch TO, not the mode you're in - by the time this
+        // VALUE_CHANGED handler runs, LVGL's internal handler has already
+        // flipped the map, so re-reading the label here would announce
+        // the mode just left instead of the one now active. Ask the
+        // keyboard directly instead.
+        voice_delay_say_text_fmt(
+            lv_keyboard_get_mode(obj) == LV_KEYBOARD_MODE_TEXT_UPPER ? "uppercase" : "lowercase");
     } else {
         speak_keyboard_btn_text(txt);
     }
@@ -249,6 +258,16 @@ lv_obj_t * textarea_window_open(textarea_window_cb_t ok, textarea_window_cb_t ca
 
     if (ok || cancel) {
         lv_obj_add_event_cb(text, text_cb, LV_EVENT_KEY, NULL);
+        // For a one-line textarea (which this always is), LVGL's keyboard
+        // fires the Enter key's LV_EVENT_READY on the textarea itself, not
+        // on the keyboard object (see lv_keyboard_def_event_cb's
+        // LV_SYMBOL_NEW_LINE handling) - only the numeric keypad's OK key
+        // readies the keyboard object too. keyboard_cb below only listened
+        // on `keyboard`, so pressing the on-screen Enter key never actually
+        // submitted; it only appeared to work when focus had accidentally
+        // landed back on the plain textarea instead of the keyboard, where
+        // text_cb's LV_KEY_ENTER case caught it by a different path.
+        lv_obj_add_event_cb(text, keyboard_cb, LV_EVENT_READY, NULL);
     }
 
     if (!keyboard_ready()) {

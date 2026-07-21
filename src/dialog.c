@@ -20,6 +20,18 @@ static lv_obj_t     *obj;
 static dialog_t     *current_dialog = NULL;
 
 void dialog_construct(dialog_t *dialog, lv_obj_t *parent) {
+    // Switching to a different app (e.g. pressing another page's F-key)
+    // while a dialog is still open used to leave the old one running
+    // silently underneath the new one - both then fight over the shared
+    // keyboard_group/focus state, which is what was causing the Wi-Fi
+    // list to go silent and eventually freeze all speech after leaving
+    // Callsign open and jumping straight to Wi-Fi. Close whatever's
+    // currently open first, the same way Escape already does.
+    if (current_dialog && current_dialog->run && current_dialog != dialog) {
+        voice_say_text_fmt("Closing previous window");
+        dialog_destruct();
+    }
+
     if (dialog && !dialog->run) {
         knobs_display(false);
         waterfall_refresh_period_set(2);
