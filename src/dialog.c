@@ -175,6 +175,13 @@ static void focus_voice_cb(lv_event_t *e) {
 void dialog_item_voice(dialog_t *dialog, lv_obj_t *obj, const char *name) {
     dialog_item(dialog, obj);
     lv_obj_add_event_cb(obj, focus_voice_cb, LV_EVENT_FOCUSED, (void *)name);
+    // FOCUSED alone only announces a control the instant you land on it -
+    // pushing the encoder to start editing, turning it to browse a
+    // dropdown's options or scrub a slider/spinbox, and pushing again to
+    // confirm were all silent, since none of that generates a new FOCUSED
+    // event. VALUE_CHANGED covers exactly those moments, reusing the same
+    // per-widget-type logic above.
+    lv_obj_add_event_cb(obj, focus_voice_cb, LV_EVENT_VALUE_CHANGED, (void *)name);
 }
 
 bool dialog_need_audio() {
