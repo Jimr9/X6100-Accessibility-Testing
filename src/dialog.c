@@ -49,7 +49,7 @@ void dialog_construct(dialog_t *dialog, lv_obj_t *parent) {
     current_dialog = dialog;
 }
 
-void dialog_destruct() {
+static void dialog_destruct_impl(bool restore_page) {
     if (current_dialog && current_dialog->run) {
         knobs_display(true);
         waterfall_refresh_reset();
@@ -63,12 +63,29 @@ void dialog_destruct() {
             lv_obj_del(current_dialog->obj);
         }
         buttons_unload_page();
-        if (current_dialog->prev_page) {
+        if (restore_page && current_dialog->prev_page) {
             buttons_load_page(current_dialog->prev_page);
         }
         main_screen_keys_enable(true);
         current_dialog = NULL;
     }
+}
+
+void dialog_destruct() {
+    dialog_destruct_impl(true);
+}
+
+void dialog_destruct_for_group_switch() {
+    // Called instead of dialog_destruct() when a dialog is closing because
+    // a group-select button (GEN/APP/KEY/DFN/DFL) was pressed. That press
+    // immediately calls buttons_load_page_group() right after this, which
+    // decides the real target page itself (favoring the group's
+    // last-visited page). Restoring and announcing the dialog's own saved
+    // prev_page here first isn't just redundant - it races the very next
+    // page load/announcement that buttons_load_page_group() triggers, so
+    // which of the two you actually hear is down to thread-scheduling
+    // timing, and it doesn't always match the page that ends up loaded.
+    dialog_destruct_impl(false);
 }
 
 void dialog_send(lv_event_code_t event_code, void *param) {

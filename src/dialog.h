@@ -35,6 +35,7 @@ typedef struct {
 
 void dialog_construct(dialog_t *dialog, lv_obj_t *parent);
 void dialog_destruct();
+void dialog_destruct_for_group_switch();
 
 bool dialog_key(dialog_t *dialog, lv_event_t * e);
 void dialog_send(lv_event_code_t event_code, void *param);

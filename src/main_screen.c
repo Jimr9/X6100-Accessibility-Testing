@@ -131,6 +131,16 @@ static void apps_disable() {
     panel_update_visibility(false);
 }
 
+// Used by the GEN/APP/KEY/DFN/DFL group-select buttons instead of
+// apps_disable() - see dialog_destruct_for_group_switch() for why closing
+// a dialog needs to behave differently right before a group switch.
+static void apps_disable_for_group_switch() {
+    dialog_destruct_for_group_switch();
+
+    rtty_set_state(RTTY_OFF);
+    panel_update_visibility(false);
+}
+
 void main_screen_start_app(press_action_t app_action) {
     apps_disable();
 
@@ -528,7 +538,7 @@ static void main_screen_keypad_cb(lv_event_t * e) {
 
         case KEYPAD_GEN:
             if (keypad->state == KEYPAD_RELEASE) {
-                apps_disable();
+                apps_disable_for_group_switch();
                 buttons_load_page_group(buttons_group_gen);
             } else if (keypad->state == KEYPAD_LONG) {
                 main_screen_action(params.long_gen);
@@ -537,7 +547,7 @@ static void main_screen_keypad_cb(lv_event_t * e) {
 
         case KEYPAD_APP:
             if (keypad->state == KEYPAD_RELEASE) {
-                apps_disable();
+                apps_disable_for_group_switch();
                 buttons_load_page_group(buttons_group_app);
             } else if (keypad->state == KEYPAD_LONG) {
                 main_screen_action(params.long_app);
@@ -546,7 +556,7 @@ static void main_screen_keypad_cb(lv_event_t * e) {
 
         case KEYPAD_KEY:
             if (keypad->state == KEYPAD_RELEASE) {
-                apps_disable();
+                apps_disable_for_group_switch();
                 buttons_load_page_group(buttons_group_key);
             } else if (keypad->state == KEYPAD_LONG) {
                 main_screen_action(params.long_key);
@@ -602,7 +612,7 @@ static void main_screen_keypad_cb(lv_event_t * e) {
 
         case KEYPAD_DFN:
             if (keypad->state == KEYPAD_RELEASE) {
-                apps_disable();
+                apps_disable_for_group_switch();
                 buttons_load_page_group(buttons_group_dfn);
             } else if (keypad->state == KEYPAD_LONG) {
                 main_screen_action(params.long_dfn);
@@ -611,7 +621,7 @@ static void main_screen_keypad_cb(lv_event_t * e) {
 
         case KEYPAD_DFL:
             if (keypad->state == KEYPAD_RELEASE) {
-                apps_disable();
+                apps_disable_for_group_switch();
                 buttons_load_page_group(buttons_group_dfl);
                 voice_say_text_fmt("DFL parameters");
             } else if (keypad->state == KEYPAD_LONG) {
