@@ -325,53 +325,18 @@ void dialog_swrscan_run_cb(button_item_t *item) {
         run = false;
         radio_stop_swrscan();
 
-        // Report the frequency with the lowest SWR found, so the result is
-        // usable without seeing the chart. Only search the portion of the
-        // sweep actually measured - unmeasured slots still hold the 1.0
-        // placeholder from do_init() and would look like a perfect match.
-        uint16_t measured = completed_lap ? STEPS : freq_index;
-        if (measured == 0) {
-            voice_say_text_fmt("Scan stopped, no data collected");
-        } else {
-            float    best_vswr   = data[0];
-            uint16_t best_index  = 0;
-            float    worst_vswr  = data[0];
-            uint16_t worst_index = 0;
-            for (uint16_t i = 1; i < measured; i++) {
-                if (data[i] < best_vswr) {
-                    best_vswr  = data[i];
-                    best_index = i;
-                }
-                if (data[i] > worst_vswr) {
-                    worst_vswr  = data[i];
-                    worst_index = i;
-                }
-            }
-            uint32_t best_freq  = freq_start + (freq_stop - freq_start) * best_index / STEPS;
-            uint32_t worst_freq = freq_start + (freq_stop - freq_start) * worst_index / STEPS;
-            uint16_t mhz, khz, hz;
-            uint16_t wmhz, wkhz, whz;
-            split_freq(best_freq, &mhz, &khz, &hz);
-            split_freq(worst_freq, &wmhz, &wkhz, &whz);
-
-            // Lowest and highest SWR points give the closest thing to the
-            // shape of the curve without reading every point on it. Center
-            // index of the sweep is where you started, so that's the
-            // direct "is retuning even worth it" comparison - only include
-            // it if the scan actually reached that point.
-            uint16_t center_index = STEPS / 2;
-            if (measured > center_index) {
-                voice_say_text_fmt(
-                    "Scan stopped. Lowest S W R %.1f to 1 at %i megahertz %i kilohertz. Highest S W R %.1f to 1 at "
-                    "%i megahertz %i kilohertz. At your starting frequency, S W R %.1f to 1",
-                    best_vswr, mhz, khz, worst_vswr, wmhz, wkhz, data_filtered[center_index]);
-            } else {
-                voice_say_text_fmt(
-                    "Scan stopped. Lowest S W R %.1f to 1 at %i megahertz %i kilohertz. Highest S W R %.1f to 1 at "
-                    "%i megahertz %i kilohertz",
-                    best_vswr, mhz, khz, worst_vswr, wmhz, wkhz);
-            }
-        }
+        // No "Scan stopped" announcement here (previously reported lowest/
+        // highest SWR and how the starting frequency compared) - confirmed
+        // via live device testing that this shares the exact same hazard
+        // "Scan started" does: radio_stop_swrscan() also reconfigures the
+        // radio's audio hardware right at this instant, and speaking here
+        // wedged the speech engine badly enough that even the software's
+        // own reset couldn't recover it - only a full power cycle could.
+        // A fixed delay isn't a safe alternative either: there's no way to
+        // know how long the radio's hardware actually needs to settle, and
+        // guessing wrong risks the same lockup. Needs a real fix (a
+        // detectable "safe to speak" signal, if one exists) before this is
+        // safe to announce again, not a quick patch.
 
         radio_set_freq(freq_center);
         mem_load(MEM_BACKUP_ID);
