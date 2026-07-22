@@ -403,8 +403,14 @@ static void cell_selected_cb(lv_event_t * e) {
 }
 
 static void dialog_recorder_rec_cb(button_item_t *item) {
-    recorder_set_on(true);
+    // Speak first and wait for it to finish, then turn recording on.
+    // Doing it the other way around (as before) meant recorder_is_on()
+    // was already true by the time this checked whether it could speak,
+    // so voice_enable()'s own "don't talk while recording" guard silently
+    // swallowed this announcement every time.
     voice_say_text_fmt("Recording");
+    voice_wait_done();
+    recorder_set_on(true);
 }
 
 static void rec_stop_cb(button_item_t *item) {

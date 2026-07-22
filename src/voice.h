@@ -46,6 +46,8 @@ void voice_say_float2(const char *prompt, float x);
 void voice_say_text(const char *prompt, const char *x);
 void voice_say_lang();
 
+void voice_wait_done();
+
 #ifdef __cplusplus
 }
 #endif

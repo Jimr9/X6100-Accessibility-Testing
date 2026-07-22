@@ -589,9 +589,14 @@ void dialog_msg_voice_period_cb(button_item_t *item) {
 void dialog_msg_voice_rec_cb(button_item_t *item) {
     if (state == MSG_VOICE_OFF) {
         if (create_file()) {
+            // Speak "Recording" and wait for it to actually finish before
+            // turning on real capture - otherwise the mic (physically close
+            // to the speaker) picks up the tail of this very announcement.
+            voice_say_text_fmt("Recording");
+            voice_wait_done();
+
             audio_set_play_mode(AUDIO_PLAY_VOICE_REC);
             state = MSG_VOICE_RECORD;
-            voice_say_text_fmt("Recording");
 
             buttons_unload_page();
             buttons_load(1, &btn_rec_stop);

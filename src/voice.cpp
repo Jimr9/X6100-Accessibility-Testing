@@ -145,6 +145,17 @@ void voice_sure() {
     sure = true;
 }
 
+// Blocks until the current announcement (if any) has actually finished
+// playing through the speaker. Needed anywhere a caller is about to turn on
+// real audio capture right after speaking - without this, the capture starts
+// while the announcement is still mid-playback and the mic (physically close
+// to the speaker on this radio) picks up the announcement itself.
+void voice_wait_done() {
+    while (run) {
+        usleep(10000);
+    }
+}
+
 void voice_change_mode() {
     voice_sure();
 

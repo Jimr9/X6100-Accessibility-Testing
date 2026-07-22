@@ -205,6 +205,7 @@ void main_screen_action(press_action_t action) {
                 voice_say_text_fmt("Audio recorder off");
             } else {
                 voice_say_text_fmt("Audio recorder on");
+                voice_wait_done();
                 recorder_set_on(true);
             }
             break;
