@@ -32,6 +32,7 @@
 #include "msg.h"
 #include "meter.h"
 #include "voice.h"
+#include "scheduler.h"
 
 #define BUF_SIZE 1024
 
@@ -58,36 +59,37 @@ static void construct_cb(lv_obj_t *parent);
 static void destruct_cb();
 static void key_cb(lv_event_t * e);
 static void cell_selected_cb(lv_event_t * e);
-static void rec_stop_cb(button_item_t *item);
-static void play_stop_cb(button_item_t *item);
-static void send_stop_cb(button_item_t *item);
-static void beacon_stop_cb(button_item_t *item);
+static void rec_stop_cb(button_data_t *btn_data);
+static void play_stop_cb(button_data_t *btn_data);
+static void send_stop_cb(button_data_t *btn_data);
+static void beacon_stop_cb(button_data_t *btn_data);
+static void refresh_buttons_on_done(void *page);
 
-static void dialog_msg_voice_send_cb(button_item_t *item);
-static void dialog_msg_voice_beacon_cb(button_item_t *item);
-static void dialog_msg_voice_period_cb(button_item_t *item);
+static void dialog_msg_voice_send_cb(button_data_t *btn_data);
+static void dialog_msg_voice_beacon_cb(button_data_t *btn_data);
+static void dialog_msg_voice_period_cb(button_data_t *btn_data);
 
-static void dialog_msg_voice_rec_cb(button_item_t *item);
-static void dialog_msg_voice_play_cb(button_item_t *item);
-static void dialog_msg_voice_rename_cb(button_item_t *item);
-static void dialog_msg_voice_delete_cb(button_item_t *item);
+static void dialog_msg_voice_rec_cb(button_data_t *btn_data);
+static void dialog_msg_voice_play_cb(button_data_t *btn_data);
+static void dialog_msg_voice_rename_cb(button_data_t *btn_data);
+static void dialog_msg_voice_delete_cb(button_data_t *btn_data);
 
-static button_item_t btn_rec_stop = {
+static button_data_t btn_rec_stop = {
     .type  = BTN_TEXT,
     .label = "Rec\nStop",
     .press = rec_stop_cb,
 };
-static button_item_t btn_play_stop = {
+static button_data_t btn_play_stop = {
     .type  = BTN_TEXT,
     .label = "Play\nStop",
     .press = play_stop_cb,
 };
-static button_item_t btn_send_stop = {
+static button_data_t btn_send_stop = {
     .type  = BTN_TEXT,
     .label = "Send\nStop",
     .press = send_stop_cb,
 };
-static button_item_t btn_beacon_stop = {
+static button_data_t btn_beacon_stop = {
     .type  = BTN_TEXT,
     .label = "Beacon\nStop",
     .press = beacon_stop_cb,
@@ -95,23 +97,23 @@ static button_item_t btn_beacon_stop = {
 
 /* Msg Voice */
 
-static button_item_t btn_msg_p1 = {
+static button_data_t btn_msg_p1 = {
     .type  = BTN_TEXT,
     .label = "(MSG 1:2)",
     .press = button_next_page_cb,
     .voice = "Voice messages page 1",
 };
-static button_item_t btn_send = {
+static button_data_t btn_send = {
     .type  = BTN_TEXT,
     .label = "Send",
     .press = dialog_msg_voice_send_cb,
 };
-static button_item_t btn_beacon = {
+static button_data_t btn_beacon = {
     .type  = BTN_TEXT,
     .label = "Beacon",
     .press = dialog_msg_voice_beacon_cb,
 };
-static button_item_t btn_beacon_period = {
+static button_data_t btn_beacon_period = {
     .type  = BTN_TEXT,
     .label = "Beacon\nPeriod",
     .press = dialog_msg_voice_period_cb,
@@ -125,28 +127,28 @@ static buttons_page_t page_msg_voice_1 = {
      &btn_beacon_period,
      }
 };
-static button_item_t btn_msg_p2 = {
+static button_data_t btn_msg_p2 = {
     .type  = BTN_TEXT,
     .label = "(MSG 2:2)",
     .press = button_next_page_cb,
     .voice = "Voice messages page 2",
 };
-static button_item_t btn_rec = {
+static button_data_t btn_rec = {
     .type  = BTN_TEXT,
     .label = "Rec",
     .press = dialog_msg_voice_rec_cb,
 };
-static button_item_t btn_rename = {
+static button_data_t btn_rename = {
     .type  = BTN_TEXT,
     .label = "Rename",
     .press = dialog_msg_voice_rename_cb,
 };
-static button_item_t btn_delete = {
+static button_data_t btn_delete = {
     .type  = BTN_TEXT,
     .label = "Delete",
     .press = dialog_msg_voice_delete_cb,
 };
-static button_item_t btn_play = {
+static button_data_t btn_play = {
     .type  = BTN_TEXT,
     .label = "Play",
     .press = dialog_msg_voice_play_cb,
@@ -301,10 +303,8 @@ static void * play_thread(void *arg) {
     play_item();
     audio_set_play_mode(AUDIO_PLAY_OFF);
 
-    if (dialog.run) {
-        buttons_unload_page();
-        buttons_load_page(&page_msg_voice_2);
-    }
+    void *page_ptr = &page_msg_voice_2;
+    scheduler_put(refresh_buttons_on_done, &page_ptr, sizeof(&page_ptr));
 }
 
 static void * send_thread(void *arg) {
@@ -313,14 +313,12 @@ static void * send_thread(void *arg) {
 
     msg_update_text_fmt("Sending message");
 
-    radio_set_ptt(true);
+    radio_set_modem(true);
     play_item();
-    radio_set_ptt(false);
+    radio_set_modem(false);
 
-    if (dialog.run) {
-        buttons_unload_page();
-        buttons_load_page(&page_msg_voice_1);
-    }
+    void *page_ptr = &page_msg_voice_1;
+    scheduler_put(refresh_buttons_on_done, &page_ptr, sizeof(&page_ptr));
 }
 
 static void * beacon_thread(void *arg) {
@@ -330,15 +328,15 @@ static void * beacon_thread(void *arg) {
     while (true) {
         switch (beacon) {
             case VOICE_BEACON_OFF:
-                buttons_unload_page();
-                buttons_load_page(&page_msg_voice_1);
+                void *page_ptr = &page_msg_voice_1;
+                scheduler_put(refresh_buttons_on_done, &page_ptr, sizeof(&page_ptr));
                 return NULL;
 
             case VOICE_BEACON_PLAY:
                 msg_update_text_fmt("Sending message");
-                radio_set_ptt(true);
+                radio_set_modem(true);
                 play_item();
-                radio_set_ptt(false);
+                radio_set_modem(false);
                 break;
 
             case VOICE_BEACON_IDLE:
@@ -502,7 +500,7 @@ static void cell_selected_cb(lv_event_t * e) {
     }
 }
 
-void dialog_msg_voice_send_cb(button_item_t *item) {
+void dialog_msg_voice_send_cb(button_data_t *btn_data) {
     if (state == MSG_VOICE_OFF) {
         const char *name = get_item();
         if (!name) {
@@ -517,12 +515,12 @@ void dialog_msg_voice_send_cb(button_item_t *item) {
     }
 }
 
-static void send_stop_cb(button_item_t *iteme) {
+static void send_stop_cb(button_data_t *btn_datae) {
     state = MSG_VOICE_OFF;
     voice_say_text_fmt("Send stopped");
 }
 
-void dialog_msg_voice_beacon_cb(button_item_t *item) {
+void dialog_msg_voice_beacon_cb(button_data_t *btn_data) {
     if (state == MSG_VOICE_OFF) {
         const char *name = get_item();
         if (name) {
@@ -538,7 +536,7 @@ void dialog_msg_voice_beacon_cb(button_item_t *item) {
     }
 }
 
-static void beacon_stop_cb(button_item_t *item) {
+static void beacon_stop_cb(button_data_t *btn_data) {
     voice_say_text_fmt("Beacon stopped");
     switch (state) {
         case MSG_VOICE_OFF:
@@ -560,7 +558,7 @@ static void beacon_stop_cb(button_item_t *item) {
     }
 }
 
-void dialog_msg_voice_period_cb(button_item_t *item) {
+void dialog_msg_voice_period_cb(button_data_t *btn_data) {
     params_lock();
 
     switch (params.voice_msg_period) {
@@ -586,7 +584,7 @@ void dialog_msg_voice_period_cb(button_item_t *item) {
     voice_say_text_fmt("Beacon period %i seconds", params.voice_msg_period);
 }
 
-void dialog_msg_voice_rec_cb(button_item_t *item) {
+void dialog_msg_voice_rec_cb(button_data_t *btn_data) {
     if (state == MSG_VOICE_OFF) {
         if (create_file()) {
             // Speak "Recording" and wait for it to actually finish before
@@ -606,7 +604,7 @@ void dialog_msg_voice_rec_cb(button_item_t *item) {
     }
 }
 
-static void rec_stop_cb(button_item_t *item) {
+static void rec_stop_cb(button_data_t *btn_data) {
     buttons_unload_page();
     buttons_load_page_quiet(&page_msg_voice_2);
 
@@ -617,7 +615,7 @@ static void rec_stop_cb(button_item_t *item) {
     voice_say_text_fmt("Recording stopped");
 }
 
-void dialog_msg_voice_play_cb(button_item_t *item) {
+void dialog_msg_voice_play_cb(button_data_t *btn_data) {
     if (state == MSG_VOICE_OFF) {
         const char *name = get_item();
         if (!name) {
@@ -632,12 +630,12 @@ void dialog_msg_voice_play_cb(button_item_t *item) {
     }
 }
 
-void play_stop_cb(button_item_t *item) {
+void play_stop_cb(button_data_t *btn_data) {
     state = MSG_VOICE_OFF;
     voice_say_text_fmt("Playback stopped");
 }
 
-void dialog_msg_voice_rename_cb(button_item_t *item) {
+void dialog_msg_voice_rename_cb(button_data_t *btn_data) {
     const char *name = get_item();
     if (!name) {
         voice_say_text_fmt("No message selected");
@@ -653,7 +651,7 @@ void dialog_msg_voice_rename_cb(button_item_t *item) {
     }
 }
 
-void dialog_msg_voice_delete_cb(button_item_t *item) {
+void dialog_msg_voice_delete_cb(button_data_t *btn_data) {
     const char *name = get_item();
 
     if (name) {
@@ -693,4 +691,19 @@ void dialog_msg_voice_put_audio_samples(size_t nsamples, int16_t *samples) {
     peak = S1 + (peak / 32768.0) * (S9_40 - S1);
     meter_update(peak, 0.25f);
     sf_write_short(file, samples, nsamples);
+}
+
+
+/**
+ * Helper function to refresh buttons from threads to prevent LVGL errors
+ */
+static void refresh_buttons_on_done(void *page) {
+    if (!page) {
+        return;
+    }
+
+    if (dialog.run) {
+        buttons_unload_page();
+        buttons_load_page(*(buttons_page_t**)page);
+    }
 }

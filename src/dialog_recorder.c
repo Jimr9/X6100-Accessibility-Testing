@@ -60,39 +60,39 @@ static void load_btn_page();
 
 static void update_level_cb(lv_timer_t * timer);
 
-static void rec_stop_cb(button_item_t *item);
-static void play_stop_cb(button_item_t *item);
-static void dialog_recorder_rec_cb(button_item_t *item);
-static void dialog_recorder_play_cb(button_item_t *item);
-static void dialog_recorder_rename_cb(button_item_t *item);
-static void dialog_recorder_delete_cb(button_item_t *item);
+static void rec_stop_cb(button_data_t *btn_data);
+static void play_stop_cb(button_data_t *btn_data);
+static void dialog_recorder_rec_cb(button_data_t *btn_data);
+static void dialog_recorder_play_cb(button_data_t *btn_data);
+static void dialog_recorder_rename_cb(button_data_t *btn_data);
+static void dialog_recorder_delete_cb(button_data_t *btn_data);
 
-static button_item_t btn_rec = {
+static button_data_t btn_rec = {
     .type  = BTN_TEXT,
     .label = "Rec",
     .press = dialog_recorder_rec_cb,
 };
-static button_item_t btn_rec_stop = {
+static button_data_t btn_rec_stop = {
     .type  = BTN_TEXT,
     .label = "Rec\nStop",
     .press = rec_stop_cb,
 };
-static button_item_t btn_rename = {
+static button_data_t btn_rename = {
     .type  = BTN_TEXT,
     .label = "Rename",
     .press = dialog_recorder_rename_cb,
 };
-static button_item_t btn_delete = {
+static button_data_t btn_delete = {
     .type  = BTN_TEXT,
     .label = "Delete",
     .press = dialog_recorder_delete_cb,
 };
-static button_item_t btn_play = {
+static button_data_t btn_play = {
     .type  = BTN_TEXT,
     .label = "Play",
     .press = dialog_recorder_play_cb,
 };
-static button_item_t btn_play_stop = {
+static button_data_t btn_play_stop = {
     .type  = BTN_TEXT,
     .label = "Play\nStop",
     .press = play_stop_cb,
@@ -402,7 +402,7 @@ static void cell_selected_cb(lv_event_t * e) {
     }
 }
 
-static void dialog_recorder_rec_cb(button_item_t *item) {
+static void dialog_recorder_rec_cb(button_data_t *btn_data) {
     // Speak first and wait for it to finish, then turn recording on.
     // Doing it the other way around (as before) meant recorder_is_on()
     // was already true by the time this checked whether it could speak,
@@ -413,13 +413,13 @@ static void dialog_recorder_rec_cb(button_item_t *item) {
     recorder_set_on(true);
 }
 
-static void rec_stop_cb(button_item_t *item) {
+static void rec_stop_cb(button_data_t *btn_data) {
     recorder_set_on(false);
     load_table();
     voice_say_text_fmt("Recording stopped");
 }
 
-static void dialog_recorder_play_cb(button_item_t *item) {
+static void dialog_recorder_play_cb(button_data_t *btn_data) {
     const char *name = get_item();
     if (!name) {
         voice_say_text_fmt("No recording selected");
@@ -432,12 +432,12 @@ static void dialog_recorder_play_cb(button_item_t *item) {
     buttons_load(4, &btn_play_stop);
 }
 
-static void play_stop_cb(button_item_t *item) {
+static void play_stop_cb(button_data_t *btn_data) {
     play_state = false;
     voice_say_text_fmt("Playback stopped");
 }
 
-static void dialog_recorder_rename_cb(button_item_t *item) {
+static void dialog_recorder_rename_cb(button_data_t *btn_data) {
     const char *name = get_item();
     if (!name) {
         voice_say_text_fmt("No recording selected");
@@ -453,7 +453,7 @@ static void dialog_recorder_rename_cb(button_item_t *item) {
     }
 }
 
-static void dialog_recorder_delete_cb(button_item_t *item) {
+static void dialog_recorder_delete_cb(button_data_t *btn_data) {
     const char *name = get_item();
 
     if (name) {

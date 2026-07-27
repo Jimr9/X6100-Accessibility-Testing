@@ -38,45 +38,45 @@ static void construct_cb(lv_obj_t *parent);
 static void destruct_cb();
 static void key_cb(lv_event_t * e);
 static void cell_selected_cb(lv_event_t * e);
-static void send_stop_cb(button_item_t *item);
-static void beacon_stop_cb(button_item_t *item);
+static void send_stop_cb(button_data_t *btn_data);
+static void beacon_stop_cb(button_data_t *btn_data);
 
-static void dialog_msg_cw_send_cb(button_item_t *item);
-static void dialog_msg_cw_beacon_cb(button_item_t *item);
-static void dialog_msg_cw_period_cb(button_item_t *item);
+static void dialog_msg_cw_send_cb(button_data_t *btn_data);
+static void dialog_msg_cw_beacon_cb(button_data_t *btn_data);
+static void dialog_msg_cw_period_cb(button_data_t *btn_data);
 
-static void dialog_msg_cw_new_cb(button_item_t *item);
-static void dialog_msg_cw_edit_cb(button_item_t *item);
-static void dialog_msg_cw_delete_cb(button_item_t *item);
+static void dialog_msg_cw_new_cb(button_data_t *btn_data);
+static void dialog_msg_cw_edit_cb(button_data_t *btn_data);
+static void dialog_msg_cw_delete_cb(button_data_t *btn_data);
 
-static button_item_t btn_send_stop = {
+static button_data_t btn_send_stop = {
     .type  = BTN_TEXT,
     .label = "Send\nStop",
     .press = send_stop_cb,
 };
-static button_item_t btn_beacon_stop = {
+static button_data_t btn_beacon_stop = {
     .type  = BTN_TEXT,
     .label = "Beacon\nStop",
     .press = beacon_stop_cb,
 };
 
-static button_item_t btn_msg_p1 = {
+static button_data_t btn_msg_p1 = {
     .type  = BTN_TEXT,
     .label = "(MSG 1:2)",
     .press = button_next_page_cb,
     .voice = "CW messages page 1",
 };
-static button_item_t btn_send = {
+static button_data_t btn_send = {
     .type  = BTN_TEXT,
     .label = "Send",
     .press = dialog_msg_cw_send_cb,
 };
-static button_item_t btn_beacon = {
+static button_data_t btn_beacon = {
     .type  = BTN_TEXT,
     .label = "Beacon",
     .press = dialog_msg_cw_beacon_cb,
 };
-static button_item_t btn_beacon_period = {
+static button_data_t btn_beacon_period = {
     .type  = BTN_TEXT,
     .label = "Beacon\nPeriod",
     .press = dialog_msg_cw_period_cb,
@@ -90,23 +90,23 @@ buttons_page_t buttons_page_msg_cw_1 = {
      }
 };
 
-static button_item_t btn_msg_p2 = {
+static button_data_t btn_msg_p2 = {
     .type  = BTN_TEXT,
     .label = "(MSG 2:2)",
     .press = button_next_page_cb,
     .voice = "CW messages page 2",
 };
-static button_item_t btn_new = {
+static button_data_t btn_new = {
     .type  = BTN_TEXT,
     .label = "New",
     .press = dialog_msg_cw_new_cb,
 };
-static button_item_t btn_edit = {
+static button_data_t btn_edit = {
     .type  = BTN_TEXT,
     .label = "Edit",
     .press = dialog_msg_cw_edit_cb,
 };
-static button_item_t btn_delete = {
+static button_data_t btn_delete = {
     .type  = BTN_TEXT,
     .label = "Delete",
     .press = dialog_msg_cw_delete_cb,
@@ -306,7 +306,7 @@ void dialog_msg_cw_append(uint32_t id, const char *val) {
     table_rows++;
 }
 
-void dialog_msg_cw_send_cb(button_item_t *item) {
+void dialog_msg_cw_send_cb(button_data_t *btn_data) {
     const char *msg = get_msg();
 
     if (!msg) {
@@ -320,14 +320,14 @@ void dialog_msg_cw_send_cb(button_item_t *item) {
     buttons_load(1, &btn_send_stop);
 }
 
-static void send_stop_cb(button_item_t *item) {
+static void send_stop_cb(button_data_t *btn_data) {
     cw_encoder_stop();
     buttons_unload_page();
     buttons_load_page_quiet(&buttons_page_msg_cw_1);
     voice_say_text_fmt("Send stopped");
 }
 
-void dialog_msg_cw_beacon_cb(button_item_t *item) {
+void dialog_msg_cw_beacon_cb(button_data_t *btn_data) {
     const char *msg = get_msg();
 
     if (!msg) {
@@ -341,14 +341,14 @@ void dialog_msg_cw_beacon_cb(button_item_t *item) {
     buttons_load(2, &btn_beacon_stop);
 }
 
-static void beacon_stop_cb(button_item_t *item) {
+static void beacon_stop_cb(button_data_t *btn_data) {
     cw_encoder_stop();
     buttons_unload_page();
     buttons_load_page_quiet(&buttons_page_msg_cw_1);
     voice_say_text_fmt("Beacon stopped");
 }
 
-void dialog_msg_cw_period_cb(button_item_t *item) {
+void dialog_msg_cw_period_cb(button_data_t *btn_data) {
     params_lock();
 
     switch (params.cw_encoder_period) {
@@ -374,13 +374,13 @@ void dialog_msg_cw_period_cb(button_item_t *item) {
     voice_say_text_fmt("Beacon period %i seconds", params.cw_encoder_period);
 }
 
-void dialog_msg_cw_new_cb(button_item_t *item) {
+void dialog_msg_cw_new_cb(button_data_t *btn_data) {
     lv_group_remove_obj(table);
     textarea_window_open(textarea_window_new_ok_cb, textarea_window_close_cb);
     voice_say_text_fmt("Enter new C W message");
 }
 
-void dialog_msg_cw_edit_cb(button_item_t *item) {
+void dialog_msg_cw_edit_cb(button_data_t *btn_data) {
     const char *msg = get_msg();
 
     if (msg) {
@@ -393,7 +393,7 @@ void dialog_msg_cw_edit_cb(button_item_t *item) {
     }
 }
 
-void dialog_msg_cw_delete_cb(button_item_t *item) {
+void dialog_msg_cw_delete_cb(button_data_t *btn_data) {
     if (table_rows == 0) {
         voice_say_text_fmt("No message selected");
         return;

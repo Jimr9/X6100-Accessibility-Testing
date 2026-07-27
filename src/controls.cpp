@@ -76,6 +76,9 @@ static std::map<cfg_ctrl_t, std::string> control_name_voice{
     {CTRL_RTTY_CENTER, "Teletype frequency center"},
     {CTRL_RTTY_REVERSE, "Teletype reverse switcher"},
     {CTRL_IF_SHIFT, "IF shift control"},
+    {CTRL_CW_PEAK_ON, "CW peak switcher"},
+    {CTRL_CW_PEAK_Q, "CW peak Q"},
+    {CTRL_CW_ZAP, "CW zap"},
 };
 
 void control_name_say(cfg_ctrl_t ctrl) {
@@ -87,67 +90,67 @@ void control_name_say(cfg_ctrl_t ctrl) {
     }
 }
 
-void controls_toggle_agc_hang(button_item_t *btn) {
+void controls_toggle_agc_hang(button_data_t *data) {
     bool new_val = toggle_subj(cfg.agc_hang.val);
     voice_say_bool("Auto gain hang", new_val);
 }
 
-void controls_toggle_key_train(button_item_t *btn) {
+void controls_toggle_key_train(button_data_t *data) {
     bool new_val = toggle_subj(cfg.key_train.val);
     voice_say_bool("CW key train", new_val);
 }
 
-void controls_toggle_key_iambic_mode(button_item_t *btn) {
+void controls_toggle_key_iambic_mode(button_data_t *data) {
     x6100_iambic_mode_t new_mode = subject_get_int(cfg.iambic_mode.val) == x6100_iambic_a ? x6100_iambic_b : x6100_iambic_a;
     subject_set_int(cfg.iambic_mode.val, new_mode);
     char *str = params_iambic_mode_str_ger(new_mode);
     voice_say_text("Iambic mode", str);
 }
 
-void controls_toggle_cw_decoder(button_item_t *btn) {
+void controls_toggle_cw_decoder(button_data_t *data) {
     bool new_val = toggle_subj(cfg.cw_decoder.val);
     voice_say_bool("CW Decoder", new_val);
 }
 
-void controls_toggle_cw_tuner(button_item_t *btn) {
+void controls_toggle_cw_tuner(button_data_t *data) {
     bool new_val = toggle_subj(cfg.cw_tune.val);
     voice_say_bool("CW Decoder", new_val);
 }
 
-void controls_toggle_cw_peak(button_item_t *btn) {
+void controls_toggle_cw_peak(button_data_t *data) {
     bool new_val = toggle_subj(cfg.cw_peak_on.val);
     voice_say_bool("CW Peak", new_val);
 }
 
-void controls_toggle_dnf(button_item_t *btn) {
+void controls_toggle_dnf(button_data_t *data) {
     bool new_val = toggle_subj(cfg.dnf.val);
     voice_say_bool("DNF", new_val);
 }
 
-void controls_toggle_dnf_auto(button_item_t *btn) {
+void controls_toggle_dnf_auto(button_data_t *data) {
     bool new_val = toggle_subj(cfg.dnf_auto.val);
     voice_say_bool("DNF auto", new_val);
 }
 
-void controls_toggle_nb(button_item_t *btn) {
+void controls_toggle_nb(button_data_t *data) {
     bool new_val = toggle_subj(cfg.nb.val);
     voice_say_bool("NB", new_val);
 }
 
-void controls_toggle_nr(button_item_t *btn) {
+void controls_toggle_nr(button_data_t *data) {
     bool new_val = toggle_subj(cfg.nr.val);
     voice_say_bool("NR", new_val);
 }
 
-void controls_toggle_vox(button_item_t *btn) {
+void controls_toggle_vox(button_data_t *data) {
     bool new_val = toggle_subj(cfg.vox.on.val);
     voice_say_bool("VOX", new_val);
 }
 
-void controls_cw_zap(button_item_t *btn) {
-    SUBJ_CAST_I32(cfg_cur.mode, mode_subj);
-    SUBJ_CAST_I32(cfg.key_tone.val, key_tone_subj);
-    SUBJ_CAST_I32(cfg_cur.fg_freq, fg_freq_subj);
+void controls_cw_zap(button_data_t *data) {
+    auto mode_subj = static_cast<SubjectInt*>(cfg_cur.mode);
+    auto key_tone_subj = static_cast<SubjectInt*>(cfg.key_tone.val);
+    auto fg_freq_subj = static_cast<SubjectInt*>(cfg_cur.fg_freq);
     x6100_mode_t mode = (x6100_mode_t)(mode_subj->get());
     if ((mode != x6100_mode_cw) && (mode != x6100_mode_cwr)) {
         return;
