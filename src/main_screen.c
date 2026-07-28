@@ -376,7 +376,7 @@ static void change_mode(keypad_key_t key, keypad_state_t state) {
 
     for (size_t i = 0; i < sizeof(modes_text)/sizeof(modes_text[0]); i++) {
         if (modes_text[i].mode == next_mode) {
-            voice_say_text_fmt(modes_text[i].msg);
+            voice_say_text_fmt("%s", modes_text[i].msg);
             break;
         }
     }

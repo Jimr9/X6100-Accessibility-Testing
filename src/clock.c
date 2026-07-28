@@ -197,7 +197,7 @@ void clock_set_tx_timeout(uint8_t sec) {
 
 void clock_say_bat_info() {
     voice_sure();
-    voice_say_float("Battery voltage|", v_bat);
+    voice_say_float("Battery voltage", v_bat);
 }
 
 static void check_time_sync_cb(lv_timer_t * t) {

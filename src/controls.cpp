@@ -84,7 +84,7 @@ static std::map<cfg_ctrl_t, std::string> control_name_voice{
 void control_name_say(cfg_ctrl_t ctrl) {
     auto item = control_name_voice.find(ctrl);
     if (item != control_name_voice.end()) {
-        voice_say_text_fmt(item->second.c_str());
+        voice_say_text_fmt("%s", item->second.c_str());
     } else {
         LV_LOG_ERROR("Ctrl %d has no voice", ctrl);
     }
@@ -330,7 +330,7 @@ void controls_encoder_update(cfg_ctrl_t ctrl, int16_t diff, std::string &msg) {
 
             if (diff) {
                 if (i > 1) {
-                    voice_say_text_fmt("Compressor ratio|%d to 1", i);
+                    voice_say_prompted_fmt("Compressor ratio", "%d to 1", i);
                 } else {
                     voice_say_text_fmt("Compressor disabled");
                 }

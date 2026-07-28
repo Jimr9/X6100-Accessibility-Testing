@@ -78,6 +78,12 @@ static uint32_t                     delay = 0;
 static bool                         run = false;
 static uint16_t                     repeated = 0;
 static bool                         sure = false;
+// Length of the "prompt" prefix in buf, set by the caller. 0 means the
+// whole announcement is spoken every time; a non-zero value means the
+// prefix is compared against the previous announcement and, if unchanged,
+// only the text after it is spoken (e.g. a control's value changing while
+// its name stays the same) - see voice_say_prompted_fmt().
+static size_t                       prompt_len = 0;
 
 voice_item_t voice_item[VOICES_NUM] = {
     {.name = "lyubov",      .label = "Lyubov (En)",  .welcome = "Hello. This is voice Lyubov" },
@@ -98,25 +104,22 @@ static void * say_thread(void *arg) {
 
     profile = eng->create_voice_profile(voice_item[params.voice_lang.x].name);
 
-    char *ptr = strchr(buf, '|');
+    char *ptr = buf;
 
-    if (ptr != NULL) {
-        if (strncmp(buf, prev, ptr - buf) == 0) {
+    if (prompt_len > 0) {
+        if (strncmp(buf, prev, prompt_len) == 0) {
             repeated++;
 
             if (repeated > 4) {
                 repeated = 0;
-                ptr = buf;
             } else {
-                ptr++;
+                ptr = buf + prompt_len;
             }
         } else {
             repeated = 0;
-            ptr = buf;
         }
     } else {
         repeated = 0;
-        ptr = buf;
     }
     strcpy(prev, buf);
 
@@ -163,19 +166,19 @@ void voice_change_mode() {
         case VOICE_OFF:
             params_uint8_set(&params.voice_mode, VOICE_LCD);
             msg_update_text_fmt("Voice mode: LCD");
-            voice_say_text("Voice mode|", "is LCD");
+            voice_say_text("Voice mode", "is LCD");
             break;
 
         case VOICE_LCD:
             params_uint8_set(&params.voice_mode, VOICE_ALWAYS);
             msg_update_text_fmt("Voice mode: Always");
-            voice_say_text("Voice mode|", "is always");
+            voice_say_text("Voice mode", "is always");
             break;
 
         case VOICE_ALWAYS:
             params_uint8_set(&params.voice_mode, VOICE_OFF);
             msg_update_text_fmt("Voice mode: Off");
-            voice_say_text("Voice mode|", "is off");
+            voice_say_text("Voice mode", "is off");
             break;
     }
 }
@@ -214,6 +217,8 @@ void voice_delay_say_text_fmt(const char * fmt, ...) {
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
 
+    prompt_len = 0;
+
     if (thread) {
         pthread_cancel(thread);
         pthread_join(thread, NULL);
@@ -234,12 +239,47 @@ void voice_say_text_fmt(const char * fmt, ...) {
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
 
+    prompt_len = 0;
+
     if (thread) {
         pthread_cancel(thread);
         pthread_join(thread, NULL);
     }
 
     delay = 0;
+    pthread_create(&thread, NULL, say_thread, NULL);
+}
+
+// Speak "prompt" followed by a formatted value, throttling to just the value
+// on repeat (see prompt_len / say_thread) instead of relying on a magic '|'
+// character in the formatted text - upstream's still-unfixed page-name-drop
+// bug (1565f2e) came from exactly that: any string that happened to contain
+// a literal '|' engaged the throttle even when it wasn't meant to.
+void voice_say_prompted_fmt(const char *prompt, const char *fmt, ...) {
+    if (!voice_enable()) {
+        return;
+    }
+
+    size_t plen = strlen(prompt);
+    if (plen >= sizeof(buf)) {
+        plen = sizeof(buf) - 1;
+    }
+    memcpy(buf, prompt, plen);
+
+    va_list args;
+
+    va_start(args, fmt);
+    vsnprintf(buf + plen, sizeof(buf) - plen, fmt, args);
+    va_end(args);
+
+    prompt_len = plen;
+
+    if (thread) {
+        pthread_cancel(thread);
+        pthread_join(thread, NULL);
+    }
+
+    delay = 1000000;
     pthread_create(&thread, NULL, say_thread, NULL);
 }
 
@@ -252,12 +292,17 @@ void voice_say_freq(uint64_t freq) {
 
     split_freq(freq, &mhz, &khz, &hz);
 
-    if (hz) {
-        snprintf(buf, sizeof(buf), "%i.|%i.%i", mhz, khz, hz);
-    } else if (khz) {
-        snprintf(buf, sizeof(buf), "%i.|%i", mhz, khz);
+    if (hz || khz) {
+        int n = snprintf(buf, sizeof(buf), "%i.", mhz);
+        prompt_len = (n > 0) ? (size_t)n : 0;
+        if (hz) {
+            snprintf(buf + prompt_len, sizeof(buf) - prompt_len, "%i.%i", khz, hz);
+        } else {
+            snprintf(buf + prompt_len, sizeof(buf) - prompt_len, "%i", khz);
+        }
     } else {
         snprintf(buf, sizeof(buf), "%i", mhz);
+        prompt_len = 0;
     }
 
     if (thread) {
@@ -270,23 +315,23 @@ void voice_say_freq(uint64_t freq) {
 }
 
 void voice_say_bool(const char *prompt, bool x) {
-    voice_delay_say_text_fmt("%s|%s", prompt, x ? "is on" : "is off");
+    voice_say_prompted_fmt(prompt, "%s", x ? "is on" : "is off");
 }
 
 void voice_say_int(const char *prompt, int32_t x) {
-    voice_delay_say_text_fmt("%s|%i", prompt, x);
+    voice_say_prompted_fmt(prompt, "%i", x);
 }
 
 void voice_say_float(const char *prompt, float x) {
-    voice_delay_say_text_fmt("%s|%.1f", prompt, x);
+    voice_say_prompted_fmt(prompt, "%.1f", x);
 }
 
 void voice_say_float2(const char *prompt, float x) {
-    voice_delay_say_text_fmt("%s|%.2f", prompt, x);
+    voice_say_prompted_fmt(prompt, "%.2f", x);
 }
 
 void voice_say_text(const char *prompt, const char *x) {
-    voice_delay_say_text_fmt("%s|%s", prompt, x);
+    voice_say_prompted_fmt(prompt, "%s", x);
 }
 
 void voice_say_lang() {

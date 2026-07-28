@@ -37,6 +37,7 @@ void voice_change_mode();
 
 void voice_say_text_fmt(const char * fmt, ...);
 void voice_delay_say_text_fmt(const char * fmt, ...);
+void voice_say_prompted_fmt(const char *prompt, const char * fmt, ...);
 void voice_say_freq(uint64_t freq);
 
 void voice_say_bool(const char *prompt, bool x);
