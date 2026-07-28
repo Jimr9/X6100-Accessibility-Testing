@@ -59,6 +59,7 @@ static void construct_cb(lv_obj_t *parent);
 static void destruct_cb();
 static void key_cb(lv_event_t * e);
 static void cell_selected_cb(lv_event_t * e);
+static void start_recording();
 static void rec_stop_cb(button_data_t *btn_data);
 static void play_stop_cb(button_data_t *btn_data);
 static void send_stop_cb(button_data_t *btn_data);
@@ -584,23 +585,43 @@ void dialog_msg_voice_period_cb(button_data_t *btn_data) {
     voice_say_text_fmt("Beacon period %i seconds", params.voice_msg_period);
 }
 
+// Actually opens the file and starts capture. No announcement here - by the
+// time this runs, either voice is off (nothing to announce) or the user
+// just pressed Rec a second time after being told to, in which case
+// speaking anything here risks the mic picking up its own tail the same
+// way "Recording" always did, no matter how long we waited for it to
+// finish. See dialog_msg_voice_rec_cb().
+static void start_recording() {
+    if (create_file()) {
+        audio_set_play_mode(AUDIO_PLAY_VOICE_REC);
+        state = MSG_VOICE_RECORD;
+
+        buttons_unload_page();
+        buttons_load(1, &btn_rec_stop);
+    } else {
+        state = MSG_VOICE_OFF;
+        voice_say_text_fmt("Can't create file");
+    }
+}
+
 void dialog_msg_voice_rec_cb(button_data_t *btn_data) {
     if (state == MSG_VOICE_OFF) {
-        if (create_file()) {
-            // Speak "Recording" and wait for it to actually finish before
-            // turning on real capture - otherwise the mic (physically close
-            // to the speaker) picks up the tail of this very announcement.
-            voice_say_text_fmt("Recording");
-            voice_wait_done();
-
-            audio_set_play_mode(AUDIO_PLAY_VOICE_REC);
-            state = MSG_VOICE_RECORD;
-
-            buttons_unload_page();
-            buttons_load(1, &btn_rec_stop);
+        if (params.voice_mode.x == VOICE_OFF) {
+            // Nothing will ever be spoken, so there's nothing to guard
+            // against - start immediately like this always has.
+            start_recording();
         } else {
-            voice_say_text_fmt("Can't create file");
+            // Live testing repeatedly showed no fixed delay after speaking
+            // "Recording" was reliably long enough for the announcement to
+            // actually finish before the mic picked it up. Waiting for an
+            // explicit second press instead of a timed announcement removes
+            // the guesswork entirely - the user starts talking when *they*
+            // press the button, not when software thinks speech is done.
+            voice_say_text_fmt("Ready to record, press again to start");
+            state = MSG_VOICE_ARMED;
         }
+    } else if (state == MSG_VOICE_ARMED) {
+        start_recording();
     }
 }
 

@@ -16,6 +16,8 @@
 
 typedef enum {
     MSG_VOICE_OFF = 0,
+    MSG_VOICE_ARMED,  // Rec pressed once with voice on; waiting for a second
+                       // press to actually start - see dialog_msg_voice_rec_cb()
     MSG_VOICE_RECORD,
     MSG_VOICE_PLAY
 } msg_voice_state_t;
