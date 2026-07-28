@@ -410,16 +410,10 @@ static void dialog_recorder_rec_cb(button_data_t *btn_data) {
     // swallowed this announcement every time.
     voice_say_text_fmt("Recording");
     voice_wait_done();
-    // Msg Voice's Record already does this to route the hand mic into
-    // capture instead of leaving whatever was already flowing (RX audio)
-    // as the source - this was missing here, so this Recorder captured
-    // RX audio/hiss instead of the mic - from live device testing.
-    audio_set_play_mode(AUDIO_PLAY_VOICE_REC);
     recorder_set_on(true);
 }
 
 static void rec_stop_cb(button_data_t *btn_data) {
-    audio_set_play_mode(AUDIO_PLAY_OFF);
     recorder_set_on(false);
     load_table();
     voice_say_text_fmt("Recording stopped");
