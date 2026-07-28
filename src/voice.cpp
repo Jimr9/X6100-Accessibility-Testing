@@ -153,10 +153,17 @@ void voice_sure() {
 // real audio capture right after speaking - without this, the capture starts
 // while the announcement is still mid-playback and the mic (physically close
 // to the speaker on this radio) picks up the announcement itself.
+//
+// `run` going false only means the app has finished handing samples to
+// PulseAudio, not that they've physically finished playing - the audio
+// sink's own buffering adds real latency after that point (measured at
+// ~380ms steady-state on this hardware during live testing). The extra
+// sleep below absorbs that gap so callers don't have to know about it.
 void voice_wait_done() {
     while (run) {
         usleep(10000);
     }
+    usleep(400000);
 }
 
 void voice_change_mode() {
@@ -314,8 +321,12 @@ void voice_say_freq(uint64_t freq) {
     pthread_create(&thread, NULL, say_thread, NULL);
 }
 
+// Always announces in full ("Auto gain is on") rather than throttling to
+// just the value like the numeric helpers do - on a plain on/off toggle,
+// losing the control name after the first press is more disorienting than
+// useful, unlike a knob where the changing number is self-explanatory.
 void voice_say_bool(const char *prompt, bool x) {
-    voice_say_prompted_fmt(prompt, "%s", x ? "is on" : "is off");
+    voice_delay_say_text_fmt("%s is %s", prompt, x ? "on" : "off");
 }
 
 void voice_say_int(const char *prompt, int32_t x) {
