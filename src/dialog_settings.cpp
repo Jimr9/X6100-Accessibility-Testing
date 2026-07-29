@@ -1202,6 +1202,18 @@ static uint8_t make_voice(uint8_t row) {
     /* * */
 
     row++;
+    col = 0;
+    obj = lv_label_create(grid);
+
+    lv_label_set_text(obj, "Interrupt speech");
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, col++, 1, LV_GRID_ALIGN_CENTER, row, 1);
+
+    obj = switch_bool(grid, &params.voice_interrupt);
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, 1, 6, LV_GRID_ALIGN_CENTER, row, 1);
+
+    /* * */
+
+    row++;
     obj = lv_label_create(grid);
 
     lv_label_set_text(obj, "Voice rate, pitch, volume");

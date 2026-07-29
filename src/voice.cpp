@@ -23,6 +23,7 @@ extern "C" {
 #include "msg.h"
 }
 
+#include <atomic>
 #include <memory>
 #include <stdexcept>
 #include <iostream>
@@ -54,7 +55,21 @@ audio_player::audio_player() {
     stream.open();
 }
 
+// Set by voice_stop_current() to cooperatively abort an in-progress
+// announcement - checked here (per audio chunk RHVoice hands us) and in
+// say_thread()'s pre-speech delay wait. This replaces an earlier
+// pthread_cancel()-based approach: cancelling mid-synthesize() risked
+// skipping the audio_set_play_mode(AUDIO_PLAY_OFF) call in say_thread(),
+// which would leave the radio's BASE audio hardware stuck routed to the
+// app instead of back to normal mic/RX - a stop flag lets the current
+// thread always finish its own cleanup on its own terms, just sooner.
+static std::atomic<bool> stop_requested{false};
+
 bool audio_player::play_speech(const short* buf, std::size_t count) {
+    if (stop_requested) {
+        return false;
+    }
+
     try {
         stream.write(buf, count);
         return true;
@@ -93,11 +108,15 @@ voice_item_t voice_item[VOICES_NUM] = {
 };
 
 static void * say_thread(void *arg) {
-    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
-    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-
-    if (delay) {
-        usleep(delay);
+    // Poll rather than a single usleep(delay) so an interrupting
+    // announcement (see voice_stop_current()) can cut a still-waiting
+    // delayed announcement short instead of blocking the caller for up
+    // to the full delay.
+    for (uint32_t waited = 0; waited < delay; waited += 10000) {
+        if (stop_requested) {
+            return NULL;
+        }
+        usleep(10000);
     }
 
     run = true;
@@ -191,26 +210,60 @@ void voice_change_mode() {
 }
 
 bool voice_enable() {
-    if (run || recorder_is_on()) {
+    if (recorder_is_on()) {
         return false;
     }
 
+    bool allowed;
+
     if (sure) {
-        return true;
+        allowed = true;
+    } else {
+        switch (params.voice_mode.x) {
+            case VOICE_OFF:
+                return false;
+
+            case VOICE_ALWAYS:
+                allowed = true;
+                break;
+
+            case VOICE_LCD:
+                allowed = !backlight_is_on();
+                break;
+
+            default:
+                return false;
+        }
     }
 
-    switch (params.voice_mode.x) {
-        case VOICE_OFF:
-            return false;
-
-        case VOICE_ALWAYS:
-            return true;
-
-        case VOICE_LCD:
-            return !backlight_is_on();
+    if (!allowed) {
+        return false;
     }
 
-    return false;
+    // Normally a new announcement is dropped while one is already
+    // speaking. With voice_interrupt on, it's instead allowed through
+    // here and the caller (see voice_stop_current()) cuts the old one
+    // off cooperatively so the newest announcement is always heard,
+    // screen-reader style.
+    if (run && !params.voice_interrupt.x) {
+        return false;
+    }
+
+    return true;
+}
+
+// Cooperatively stops whatever announcement is currently running (or
+// still waiting out its pre-speech delay) and waits for it to finish its
+// own cleanup, so audio_set_play_mode(AUDIO_PLAY_OFF) always runs before
+// a new announcement takes over. Safe to call even if nothing is running.
+static void voice_stop_current() {
+    stop_requested = true;
+
+    if (thread) {
+        pthread_join(thread, NULL);
+    }
+
+    stop_requested = false;
 }
 
 void voice_delay_say_text_fmt(const char * fmt, ...) {
@@ -226,10 +279,7 @@ void voice_delay_say_text_fmt(const char * fmt, ...) {
 
     prompt_len = 0;
 
-    if (thread) {
-        pthread_cancel(thread);
-        pthread_join(thread, NULL);
-    }
+    voice_stop_current();
 
     delay = 1000000;
     pthread_create(&thread, NULL, say_thread, NULL);
@@ -248,10 +298,7 @@ void voice_say_text_fmt(const char * fmt, ...) {
 
     prompt_len = 0;
 
-    if (thread) {
-        pthread_cancel(thread);
-        pthread_join(thread, NULL);
-    }
+    voice_stop_current();
 
     delay = 0;
     pthread_create(&thread, NULL, say_thread, NULL);
@@ -281,10 +328,7 @@ void voice_say_prompted_fmt(const char *prompt, const char *fmt, ...) {
 
     prompt_len = plen;
 
-    if (thread) {
-        pthread_cancel(thread);
-        pthread_join(thread, NULL);
-    }
+    voice_stop_current();
 
     delay = 1000000;
     pthread_create(&thread, NULL, say_thread, NULL);
@@ -312,10 +356,7 @@ void voice_say_freq(uint64_t freq) {
         prompt_len = 0;
     }
 
-    if (thread) {
-        pthread_cancel(thread);
-        pthread_join(thread, NULL);
-    }
+    voice_stop_current();
 
     delay = 1000000;
     pthread_create(&thread, NULL, say_thread, NULL);
