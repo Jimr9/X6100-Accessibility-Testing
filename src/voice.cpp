@@ -125,11 +125,14 @@ static void * say_thread(void *arg) {
 
     char *ptr = buf;
 
-    if (prompt_len > 0) {
+    // voice_repeat_count == 0 means "always speak the full prompt", i.e.
+    // never throttle - handled by simply not entering the throttle at all,
+    // which leaves ptr at the full text below just like a fresh prompt does.
+    if (prompt_len > 0 && params.voice_repeat_count.x > 0) {
         if (strncmp(buf, prev, prompt_len) == 0) {
             repeated++;
 
-            if (repeated > 4) {
+            if (repeated >= params.voice_repeat_count.x) {
                 repeated = 0;
             } else {
                 ptr = buf + prompt_len;

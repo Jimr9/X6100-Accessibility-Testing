@@ -1214,6 +1214,22 @@ static uint8_t make_voice(uint8_t row) {
     /* * */
 
     row++;
+    col = 0;
+    obj = lv_label_create(grid);
+
+    lv_label_set_text(obj, "Full announce every (0=always)");
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, col++, 1, LV_GRID_ALIGN_CENTER, row, 1);
+
+    obj = spinbox_uint8(grid, &params.voice_repeat_count);
+
+    lv_spinbox_set_digit_format(obj, 2, 0);
+    lv_spinbox_set_digit_step_direction(obj, LV_DIR_LEFT);
+    lv_obj_set_size(obj, SMALL_2, 56);
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, col, 2, LV_GRID_ALIGN_CENTER, row, 1);
+
+    /* * */
+
+    row++;
     obj = lv_label_create(grid);
 
     lv_label_set_text(obj, "Voice rate, pitch, volume");
