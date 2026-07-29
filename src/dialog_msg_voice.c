@@ -62,7 +62,9 @@ static void cell_selected_cb(lv_event_t * e);
 static void start_recording();
 static void rec_stop_cb(button_data_t *btn_data);
 static void play_stop_cb(button_data_t *btn_data);
+static void start_sending();
 static void send_stop_cb(button_data_t *btn_data);
+static void start_beacon();
 static void beacon_stop_cb(button_data_t *btn_data);
 static void refresh_buttons_on_done(void *page);
 
@@ -501,6 +503,19 @@ static void cell_selected_cb(lv_event_t * e) {
     }
 }
 
+// Actually keys the modem and starts sending. No announcement here - it's
+// spoken at arm time instead, so it can't land at the same moment as
+// radio_set_modem(true), which live testing suggested may be why Send/
+// Beacon sometimes fell back to local playback instead of transmitting.
+// See dialog_msg_voice_send_cb().
+static void start_sending() {
+    state = MSG_VOICE_OFF;
+    pthread_create(&thread, NULL, send_thread, NULL);
+
+    buttons_unload_page();
+    buttons_load(1, &btn_send_stop);
+}
+
 void dialog_msg_voice_send_cb(button_data_t *btn_data) {
     if (state == MSG_VOICE_OFF) {
         const char *name = get_item();
@@ -508,11 +523,14 @@ void dialog_msg_voice_send_cb(button_data_t *btn_data) {
             voice_say_text_fmt("No message selected");
             return;
         }
-        voice_say_text_fmt("Sending %s", name);
-        pthread_create(&thread, NULL, send_thread, NULL);
-
-        buttons_unload_page();
-        buttons_load(1, &btn_send_stop);
+        if (params.voice_mode.x == VOICE_OFF) {
+            start_sending();
+        } else {
+            voice_say_text_fmt("Ready to send %s, press again to start", name);
+            state = MSG_VOICE_ARMED_SEND;
+        }
+    } else if (state == MSG_VOICE_ARMED_SEND) {
+        start_sending();
     }
 }
 
@@ -521,19 +539,32 @@ static void send_stop_cb(button_data_t *btn_datae) {
     voice_say_text_fmt("Send stopped");
 }
 
+// See start_sending() - same reasoning, applied to the beacon's repeating
+// send.
+static void start_beacon() {
+    state = MSG_VOICE_OFF;
+    beacon = VOICE_BEACON_PLAY;
+    pthread_create(&thread, NULL, beacon_thread, NULL);
+
+    buttons_unload_page();
+    buttons_load(2, &btn_beacon_stop);
+}
+
 void dialog_msg_voice_beacon_cb(button_data_t *btn_data) {
     if (state == MSG_VOICE_OFF) {
         const char *name = get_item();
-        if (name) {
-            beacon = VOICE_BEACON_PLAY;
-            pthread_create(&thread, NULL, beacon_thread, NULL);
-            voice_say_text_fmt("Beacon started, %s", name);
-
-            buttons_unload_page();
-            buttons_load(2, &btn_beacon_stop);
-        } else {
+        if (!name) {
             voice_say_text_fmt("No message selected");
+            return;
         }
+        if (params.voice_mode.x == VOICE_OFF) {
+            start_beacon();
+        } else {
+            voice_say_text_fmt("Ready to beacon %s, press again to start", name);
+            state = MSG_VOICE_ARMED_BEACON;
+        }
+    } else if (state == MSG_VOICE_ARMED_BEACON) {
+        start_beacon();
     }
 }
 
@@ -618,9 +649,9 @@ void dialog_msg_voice_rec_cb(button_data_t *btn_data) {
             // the guesswork entirely - the user starts talking when *they*
             // press the button, not when software thinks speech is done.
             voice_say_text_fmt("Ready to record, press again to start");
-            state = MSG_VOICE_ARMED;
+            state = MSG_VOICE_ARMED_RECORD;
         }
-    } else if (state == MSG_VOICE_ARMED) {
+    } else if (state == MSG_VOICE_ARMED_RECORD) {
         start_recording();
     }
 }
