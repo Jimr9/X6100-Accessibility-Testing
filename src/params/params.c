@@ -86,7 +86,7 @@ params_t params = {
     .play_gain_db_f         = { .x = 0.0f, .name = "play_gain_db_f"},
     .rec_gain_db_f          = { .x = 0.0f, .name = "rec_gain_db_f"},
 
-    .voice_mode             = { .x = VOICE_LCD,                                 .name = "voice_mode" },
+    .voice_mode             = { .x = VOICE_LCD,                                 .name = "voice_mode",   .voice = "Voice mode" },
     .voice_lang             = { .x = 0,   .min = 0,  .max = (VOICES_NUM - 1),   .name = "voice_lang",   .voice = "Voice type" },
     .voice_rate             = { .x = 100, .min = 50, .max = 150,                .name = "voice_rate",     .voice = "Voice rate" },
     .voice_pitch            = { .x = 100, .min = 50, .max = 150,                .name = "voice_pitch",    .voice = "Voice pitch" },

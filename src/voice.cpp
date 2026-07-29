@@ -266,6 +266,17 @@ static void voice_stop_current() {
     stop_requested = false;
 }
 
+// The 1 second pre-speech wait below exists to avoid trying to speak every
+// value flown past while rapidly turning a knob - only the one landed on.
+// That's only needed because interrupting wasn't safe before voice_interrupt
+// existed; with it on, a still-waiting or still-speaking announcement is
+// always safely cut off by the next one anyway (see voice_stop_current()),
+// so the wait can be skipped entirely for a much more screen-reader-like
+// "hear the latest value right away" feel.
+static uint32_t voice_debounce_delay() {
+    return params.voice_interrupt.x ? 0 : 1000000;
+}
+
 void voice_delay_say_text_fmt(const char * fmt, ...) {
     if (!voice_enable()) {
         return;
@@ -281,7 +292,7 @@ void voice_delay_say_text_fmt(const char * fmt, ...) {
 
     voice_stop_current();
 
-    delay = 1000000;
+    delay = voice_debounce_delay();
     pthread_create(&thread, NULL, say_thread, NULL);
 }
 
@@ -330,7 +341,7 @@ void voice_say_prompted_fmt(const char *prompt, const char *fmt, ...) {
 
     voice_stop_current();
 
-    delay = 1000000;
+    delay = voice_debounce_delay();
     pthread_create(&thread, NULL, say_thread, NULL);
 }
 
@@ -358,7 +369,7 @@ void voice_say_freq(uint64_t freq) {
 
     voice_stop_current();
 
-    delay = 1000000;
+    delay = voice_debounce_delay();
     pthread_create(&thread, NULL, say_thread, NULL);
 }
 
