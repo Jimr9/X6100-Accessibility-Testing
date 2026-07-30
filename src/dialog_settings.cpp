@@ -1272,6 +1272,22 @@ static uint8_t make_voice(uint8_t row) {
     /* * */
 
     row++;
+    col = 0;
+    obj = lv_label_create(grid);
+
+    lv_label_set_text(obj, "Frequency interrupt delay, ms");
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, col++, 1, LV_GRID_ALIGN_CENTER, row, 1);
+
+    obj = spinbox_uint16(grid, &params.voice_freq_interrupt_delay_ms, 0, 1000);
+
+    lv_spinbox_set_digit_format(obj, 4, 0);
+    lv_spinbox_set_digit_step_direction(obj, LV_DIR_LEFT);
+    lv_obj_set_size(obj, SMALL_3, 56);
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, col, 3, LV_GRID_ALIGN_CENTER, row, 1);
+
+    /* * */
+
+    row++;
     obj = lv_label_create(grid);
 
     lv_label_set_text(obj, "Voice rate, pitch, volume");

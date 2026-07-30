@@ -110,13 +110,13 @@ static void key_cb(lv_event_t * e) {
 
         case LV_KEY_ESC:
             voice_say_text_fmt("Frequency window has been closed");
-            dialog_destruct(&dialog);
+            dialog_destruct_quiet();
             break;
 
         case HKEY_FINP:
         case LV_KEY_ENTER:
             enter_freq();
-            dialog_destruct(&dialog);
+            dialog_destruct_quiet();
             break;
 
         case KEY_VOL_LEFT_EDIT:

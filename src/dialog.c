@@ -49,7 +49,7 @@ void dialog_construct(dialog_t *dialog, lv_obj_t *parent) {
     current_dialog = dialog;
 }
 
-static void dialog_destruct_impl(bool restore_page) {
+static void dialog_destruct_impl(bool restore_page, bool announce) {
     if (current_dialog && current_dialog->run) {
         knobs_display(true);
         waterfall_refresh_reset();
@@ -64,7 +64,11 @@ static void dialog_destruct_impl(bool restore_page) {
         }
         buttons_unload_page();
         if (restore_page && current_dialog->prev_page) {
-            buttons_load_page(current_dialog->prev_page);
+            if (announce) {
+                buttons_load_page(current_dialog->prev_page);
+            } else {
+                buttons_load_page_quiet(current_dialog->prev_page);
+            }
         }
         main_screen_keys_enable(true);
         current_dialog = NULL;
@@ -72,7 +76,18 @@ static void dialog_destruct_impl(bool restore_page) {
 }
 
 void dialog_destruct() {
-    dialog_destruct_impl(true);
+    dialog_destruct_impl(true, true);
+}
+
+void dialog_destruct_quiet() {
+    // Same as dialog_destruct() - the F-key button bar still gets restored
+    // to whatever page it showed before this dialog opened - but without
+    // re-announcing that page's name. For dialogs (like dialog_freq) that
+    // already speak their own clear result ("Frequency has been set...",
+    // "Incorrect frequency", ...), the restored page's name would otherwise
+    // fire right after and, depending on timing, be the one actually heard
+    // instead of the dialog's own message - see dialog_freq.c.
+    dialog_destruct_impl(true, false);
 }
 
 void dialog_destruct_for_group_switch() {
@@ -85,7 +100,7 @@ void dialog_destruct_for_group_switch() {
     // page load/announcement that buttons_load_page_group() triggers, so
     // which of the two you actually hear is down to thread-scheduling
     // timing, and it doesn't always match the page that ends up loaded.
-    dialog_destruct_impl(false);
+    dialog_destruct_impl(false, false);
 }
 
 void dialog_send(lv_event_code_t event_code, void *param) {

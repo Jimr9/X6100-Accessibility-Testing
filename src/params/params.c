@@ -94,6 +94,7 @@ params_t params = {
     .voice_interrupt        = { .x = false,                                     .name = "voice_interrupt", .voice = "Interrupt speech" },
     .voice_repeat_count     = { .x = 5,   .min = 0,  .max = 20,                 .name = "voice_repeat_count", .voice = "Full announce every" },
     .voice_interrupt_delay_ms = { .x = 100,                                     .name = "voice_interrupt_delay_ms", .voice = "Interrupt delay" },
+    .voice_freq_interrupt_delay_ms = { .x = 1000,                               .name = "voice_freq_interrupt_delay_ms", .voice = "Frequency interrupt delay" },
 
     .qth                    = { .x = "",  .max_len = 6, .name = "qth" },
     .callsign               = { .x = "",  .max_len = 12, .name = "callsign" },
@@ -253,6 +254,7 @@ static bool params_load() {
         if (params_load_bool(&params.voice_interrupt, name, i)) continue;
         if (params_load_uint8(&params.voice_repeat_count, name, i)) continue;
         if (params_load_uint16(&params.voice_interrupt_delay_ms, name, i)) continue;
+        if (params_load_uint16(&params.voice_freq_interrupt_delay_ms, name, i)) continue;
         if (params_load_uint8(&params.freq_accel, name, i)) continue;
 
         if (params_load_uint16(&params.ft8_tx_freq, name, i)) continue;
@@ -347,6 +349,7 @@ static void params_save() {
     params_save_bool(&params.voice_interrupt);
     params_save_uint8(&params.voice_repeat_count);
     params_save_uint16(&params.voice_interrupt_delay_ms);
+    params_save_uint16(&params.voice_freq_interrupt_delay_ms);
     params_save_uint8(&params.freq_accel);
 
     params_save_uint16(&params.ft8_tx_freq);

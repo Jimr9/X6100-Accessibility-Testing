@@ -288,6 +288,20 @@ static uint32_t voice_debounce_delay() {
     return (uint32_t)params.voice_interrupt_delay_ms.x * 1000;
 }
 
+// Frequency tuning gets its own delay, separate from voice_debounce_delay()
+// above: the main VFO knob is typically spun much faster/more continuously
+// than a settings spinbox or on-screen keyboard letter, so the short delay
+// that works well elsewhere isn't long enough here - fast tuning re-triggers
+// this too often, each attempt only surviving a moment before the next spin
+// cancels it, which is audible as chatter rather than one clean announcement
+// once you settle on a frequency.
+static uint32_t voice_freq_debounce_delay() {
+    if (!params.voice_interrupt.x) {
+        return 1000000;
+    }
+    return (uint32_t)params.voice_freq_interrupt_delay_ms.x * 1000;
+}
+
 void voice_delay_say_text_fmt(const char * fmt, ...) {
     if (!voice_enable()) {
         return;
@@ -380,7 +394,7 @@ void voice_say_freq(uint64_t freq) {
 
     voice_stop_current();
 
-    delay = voice_debounce_delay();
+    delay = voice_freq_debounce_delay();
     pthread_create(&thread, NULL, say_thread, NULL);
 }
 
