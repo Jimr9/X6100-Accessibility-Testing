@@ -152,6 +152,7 @@ typedef struct {
     params_uint8_t      voice_volume;
     params_bool_t       voice_interrupt;
     params_uint8_t      voice_repeat_count;
+    params_uint16_t     voice_interrupt_delay_ms;
 
     params_str_t        qth;
     params_str_t        callsign;

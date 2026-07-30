@@ -134,12 +134,53 @@ static void speak_textarea_context(const char *action) {
 }
 
 /**
+ * Tracks the keyboard's mode as of the last time keyboard_char_voice_cb
+ * ran, so a mode-changing press ("abc"/"ABC"/"1#") can be detected
+ * directly instead of by re-reading the pressed button's text - see the
+ * comment inside keyboard_char_voice_cb for why the latter is unreliable.
+ * Reset in textarea_window_open() to match the keyboard's actual starting
+ * mode.
+ */
+static lv_keyboard_mode_t last_seen_mode = LV_KEYBOARD_MODE_TEXT_UPPER;
+
+static const char *mode_spoken_name(lv_keyboard_mode_t mode) {
+    switch (mode) {
+        case LV_KEYBOARD_MODE_TEXT_LOWER: return "lowercase";
+        case LV_KEYBOARD_MODE_TEXT_UPPER: return "uppercase";
+        case LV_KEYBOARD_MODE_SPECIAL:    return "symbols";
+        default:                          return NULL;
+    }
+}
+
+/**
  * Speak the character just typed/removed on the on-screen keyboard, the
  * same way dialog_freq.c speaks each typed digit - so encoder-driven
  * (non-touch) text entry gives feedback instead of being silent.
  */
 static void keyboard_char_voice_cb(lv_event_t * e) {
-    lv_obj_t *obj    = lv_event_get_target(e);
+    lv_obj_t *obj = lv_event_get_target(e);
+
+    // LVGL's own keyboard logic (lv_keyboard_def_event_cb, registered on
+    // this same VALUE_CHANGED event before this callback) already ran and,
+    // for a mode-switch key ("abc"/"ABC"/"1#"), already swapped the button
+    // matrix's whole button map before we get here. Re-reading "the
+    // pressed button's text" at that point reads the NEW map at the OLD
+    // button's index, which can name a completely unrelated key - e.g.
+    // index 11 is "abc" in the symbols map but backspace in the lowercase
+    // map, so returning from symbols to lowercase got announced as
+    // "backspace" (and whatever character happened to be at the cursor)
+    // instead of "lowercase". Comparing the mode directly sidesteps the
+    // stale index entirely, since the mode field itself is authoritative.
+    lv_keyboard_mode_t mode = lv_keyboard_get_mode(obj);
+    if (mode != last_seen_mode) {
+        last_seen_mode = mode;
+        const char *name = mode_spoken_name(mode);
+        if (name) {
+            voice_delay_say_text_fmt("%s", name);
+        }
+        return;
+    }
+
     uint16_t  btn_id = lv_btnmatrix_get_selected_btn(obj);
     if (btn_id == LV_BTNMATRIX_BTN_NONE) {
         return;
@@ -155,8 +196,6 @@ static void keyboard_char_voice_cb(lv_event_t * e) {
         speak_textarea_context("left");
     } else if (strcmp(txt, LV_SYMBOL_RIGHT) == 0) {
         speak_textarea_context("right");
-    } else if (strcmp(txt, "ABC") == 0 || strcmp(txt, "abc") == 0) {
-        speak_case_mode(obj);
     } else {
         speak_keyboard_btn_text(txt);
     }
@@ -307,6 +346,7 @@ lv_obj_t * textarea_window_open(textarea_window_cb_t ok, textarea_window_cb_t ca
 
         lv_keyboard_set_textarea(keyboard, text);
         lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_TEXT_UPPER);
+        last_seen_mode = LV_KEYBOARD_MODE_TEXT_UPPER;
         lv_obj_add_event_cb(keyboard, keyboard_cb, LV_EVENT_READY, NULL);
         lv_obj_add_event_cb(keyboard, keyboard_cb, LV_EVENT_CANCEL, NULL);
         lv_obj_add_event_cb(keyboard, keyboard_cb, LV_EVENT_KEY, NULL);

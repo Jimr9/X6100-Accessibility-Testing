@@ -273,11 +273,19 @@ static void voice_stop_current() {
 // value flown past while rapidly turning a knob - only the one landed on.
 // That's only needed because interrupting wasn't safe before voice_interrupt
 // existed; with it on, a still-waiting or still-speaking announcement is
-// always safely cut off by the next one anyway (see voice_stop_current()),
-// so the wait can be skipped entirely for a much more screen-reader-like
-// "hear the latest value right away" feel.
+// always safely cut off by the next one anyway (see voice_stop_current()).
+// But dropping the wait to 0 turned out to have a second, less obvious job:
+// it also gave several announcements fired back-to-back during heavier UI
+// work (e.g. opening/closing a dialog) a cheap way to cancel each other
+// while still just waiting to start, before any of them paid the real cost
+// of starting the speech engine. voice_interrupt_delay_ms lets that tradeoff
+// be tuned live instead of guessed at - 0 is closest to instant, 1000
+// reproduces the original always-1-second wait.
 static uint32_t voice_debounce_delay() {
-    return params.voice_interrupt.x ? 0 : 1000000;
+    if (!params.voice_interrupt.x) {
+        return 1000000;
+    }
+    return (uint32_t)params.voice_interrupt_delay_ms.x * 1000;
 }
 
 void voice_delay_say_text_fmt(const char * fmt, ...) {

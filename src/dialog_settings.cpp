@@ -158,7 +158,11 @@ static void load_info_page(button_data_t *btn_data) {
         buttons_mark(btn, false);
     }
     buttons_mark(btn_data, true);
-    voice_say_text_fmt("Info");
+    // The page's own label (App/BASE version) is a plain lv_label, never
+    // wired into the group/focus voice system, so it was never spoken -
+    // only the page name "Info" was, leaving the actual content silent.
+    // Speak it here instead, as a single combined announcement.
+    voice_say_text_fmt("Info, App version %s, Base version %s", VERSION, x6100_control_get_fw_version_str());
 }
 
 /* Shared update */
@@ -243,6 +247,28 @@ static lv_obj_t * spinbox_uint8(lv_obj_t *parent, params_uint8_t *var, void(*upd
     }
 
     lv_obj_add_event_cb(obj, uint8_spinbox_update_cb, LV_EVENT_VALUE_CHANGED, var);
+
+    return obj;
+}
+
+// params_uint16_t (unlike params_uint8_t) carries no min/max fields, so the
+// range is passed in directly rather than read off the struct.
+static void uint16_spinbox_update_cb(lv_event_t * e) {
+    lv_obj_t         *obj = lv_event_get_target(e);
+    params_uint16_t  *var = (params_uint16_t*)lv_event_get_user_data(e);
+
+    params_uint16_set(var, lv_spinbox_get_value(obj));
+}
+
+static lv_obj_t * spinbox_uint16(lv_obj_t *parent, params_uint16_t *var, int32_t min, int32_t max) {
+    lv_obj_t *obj = lv_spinbox_create(parent);
+
+    dialog_item_voice(&dialog, obj, var->voice);
+
+    lv_spinbox_set_value(obj, var->x);
+    lv_spinbox_set_range(obj, min, max);
+
+    lv_obj_add_event_cb(obj, uint16_spinbox_update_cb, LV_EVENT_VALUE_CHANGED, var);
 
     return obj;
 }
@@ -1226,6 +1252,22 @@ static uint8_t make_voice(uint8_t row) {
     lv_spinbox_set_digit_step_direction(obj, LV_DIR_LEFT);
     lv_obj_set_size(obj, SMALL_2, 56);
     lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, col, 2, LV_GRID_ALIGN_CENTER, row, 1);
+
+    /* * */
+
+    row++;
+    col = 0;
+    obj = lv_label_create(grid);
+
+    lv_label_set_text(obj, "Interrupt delay, ms");
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, col++, 1, LV_GRID_ALIGN_CENTER, row, 1);
+
+    obj = spinbox_uint16(grid, &params.voice_interrupt_delay_ms, 0, 1000);
+
+    lv_spinbox_set_digit_format(obj, 4, 0);
+    lv_spinbox_set_digit_step_direction(obj, LV_DIR_LEFT);
+    lv_obj_set_size(obj, SMALL_3, 56);
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, col, 3, LV_GRID_ALIGN_CENTER, row, 1);
 
     /* * */
 
