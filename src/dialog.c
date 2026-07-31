@@ -8,6 +8,8 @@
 
 #include "dialog.h"
 
+#include <string.h>
+
 #include "styles.h"
 #include "main_screen.h"
 #include "keyboard.h"
@@ -187,6 +189,72 @@ static void focus_voice_cb(lv_event_t *e) {
     }
 }
 
+// Dropdown is the one exception to the comment in dialog_item_voice():
+// verified directly in LVGL's own lv_dropdown.c that its LV_EVENT_KEY
+// handler moves the highlighted option (LEFT/RIGHT/UP/DOWN while open)
+// without ever firing VALUE_CHANGED - that only happens once the dropdown
+// actually closes with a different final value than it opened with. So
+// browsing the open list is otherwise completely silent. This runs after
+// LVGL's own class handler has already updated the highlighted option (see
+// lv_event.c's event_send_core - the class handler always runs before
+// externally-registered callbacks for the same event), so it can safely
+// read back whichever option is now highlighted and speak it, the same
+// text focus_voice_cb would speak on focus/commit.
+static void dropdown_scroll_voice_cb(lv_event_t *e) {
+    lv_obj_t *obj = lv_event_get_target(e);
+
+    if (!lv_obj_check_type(obj, &lv_dropdown_class) || !lv_dropdown_is_open(obj)) {
+        return;
+    }
+
+    uint32_t key = *((uint32_t *)lv_event_get_param(e));
+    if (key != LV_KEY_LEFT && key != LV_KEY_RIGHT && key != LV_KEY_UP && key != LV_KEY_DOWN) {
+        return;
+    }
+
+    const char *name = (const char *)lv_event_get_user_data(e);
+    if (!name) {
+        return;
+    }
+
+    // NOT lv_dropdown_get_selected_str() - verified directly in
+    // lv_dropdown.c that it reads the *committed* option (keyed off the
+    // internal sel_opt_id_orig), which only updates once the dropdown
+    // actually closes - while just browsing it always reads back whatever
+    // was selected when the dropdown was opened, never what you've
+    // scrolled to since. lv_dropdown_get_selected() returns the live,
+    // currently-highlighted index instead (sel_opt_id) - there's no public
+    // "get text for this index" function, so pull it out of the raw
+    // newline-separated options string the same way LVGL's own
+    // lv_dropdown_get_selected_str() does internally, just keyed off the
+    // live index instead of the committed one.
+    const char *options = lv_dropdown_get_options(obj);
+    if (!options) {
+        return;
+    }
+
+    uint16_t target_line = lv_dropdown_get_selected(obj);
+    size_t txt_len = strlen(options);
+    size_t i = 0;
+    uint16_t line = 0;
+
+    while (i < txt_len && line != target_line) {
+        if (options[i] == '\n') {
+            line++;
+        }
+        i++;
+    }
+
+    char buf[64];
+    size_t c = 0;
+    while (i < txt_len && options[i] != '\n' && c < sizeof(buf) - 1) {
+        buf[c++] = options[i++];
+    }
+    buf[c] = '\0';
+
+    voice_say_text(name, buf);
+}
+
 void dialog_item_voice(dialog_t *dialog, lv_obj_t *obj, const char *name) {
     dialog_item(dialog, obj);
     lv_obj_add_event_cb(obj, focus_voice_cb, LV_EVENT_FOCUSED, (void *)name);
@@ -197,6 +265,9 @@ void dialog_item_voice(dialog_t *dialog, lv_obj_t *obj, const char *name) {
     // event. VALUE_CHANGED covers exactly those moments, reusing the same
     // per-widget-type logic above.
     lv_obj_add_event_cb(obj, focus_voice_cb, LV_EVENT_VALUE_CHANGED, (void *)name);
+    // See dropdown_scroll_voice_cb() - dropdown needs its own separate
+    // listener since VALUE_CHANGED never fires while browsing its list.
+    lv_obj_add_event_cb(obj, dropdown_scroll_voice_cb, LV_EVENT_KEY, (void *)name);
 }
 
 bool dialog_need_audio() {
