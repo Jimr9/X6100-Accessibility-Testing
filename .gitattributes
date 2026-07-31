@@ -1,0 +1,7 @@
+# rootfs/ gets copied verbatim onto the target Linux filesystem and run
+# directly by the kernel/shell - a shell script with a Windows-CRLF shebang
+# line fails to execute at all ("/bin/sh\r" doesn't exist), which is fatal
+# since S95gui starts x6100_daemon at boot, which in turn launches
+# x6100_gui. Force LF regardless of the checking-out machine's core.autocrlf
+# setting so this can't silently reintroduce itself on a Windows checkout.
+rootfs/** text eol=lf
