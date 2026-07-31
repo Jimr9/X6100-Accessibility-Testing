@@ -105,19 +105,20 @@ jobs:
     - name: Compress image
       run: |
         cd AetherX6100Buildroot/build/images
-        mv sdcard.img sdcard.${{ github.ref_name }}.img
-        zip sdcard.${{ github.ref_name }}.img.zip sdcard.${{ github.ref_name }}.img
+        zip sdcard.img.zip sdcard.img
 
-    # Upload image
+    # Fixed filename (not tag-based) so a permanent download link
+    # (github.com/.../releases/latest/download/sdcard.img.zip) always
+    # works without needing to be updated for each new release.
     - name: 'Upload image'
       uses: actions/upload-artifact@v4
       with:
-        name: sdcard.${{ github.ref_name }}.img.zip
-        path: AetherX6100Buildroot/build/images/sdcard.${{ github.ref_name }}.img.zip
+        name: sdcard.img.zip
+        path: AetherX6100Buildroot/build/images/sdcard.img.zip
 
     # Create release
     - name: Release
       uses: softprops/action-gh-release@v2
       if: startsWith(github.ref, 'refs/tags/')
       with:
-        files: AetherX6100Buildroot/build/images/sdcard.${{ github.ref_name }}.img.zip
+        files: AetherX6100Buildroot/build/images/sdcard.img.zip
