@@ -43,6 +43,7 @@ static lv_obj_t             *level;
 static int16_t              table_rows = 0;
 static SNDFILE              *file = NULL;
 static bool                 play_state = false;
+static bool                 play_armed = false;
 
 static char                 *prev_filename;
 static pthread_t            thread;
@@ -143,6 +144,7 @@ static void load_table() {
         lv_table_set_cell_value(table, table_rows++, 0, "");
         lv_table_set_row_cnt(table, 1);
     }
+
 }
 
 static void close_file() {
@@ -357,6 +359,7 @@ static void construct_cb(lv_obj_t *parent) {
 static void destruct_cb() {
     audio_set_play_mode(AUDIO_PLAY_OFF);
     play_state = false;
+    play_armed = false;
     textarea_window_close();
     lv_timer_del(level_timer);
 }
@@ -367,6 +370,28 @@ static void key_cb(lv_event_t * e) {
     switch (key) {
         case LV_KEY_ESC:
             dialog_destruct(&dialog);
+            break;
+
+        case LV_KEY_LEFT:
+        case LV_KEY_RIGHT:
+            // This radio has no up/down buttons - list navigation is done
+            // entirely by turning the main knob, which LVGL delivers as
+            // LEFT/RIGHT key events here (verified directly in
+            // lv_indev.c's indev_encoder_proc - in "editing" mode, which
+            // this table's group is in, encoder rotation always sends
+            // LEFT/RIGHT, never UP/DOWN). For a single-column table LVGL's
+            // own column-wrap logic turns LEFT/RIGHT into "previous/next
+            // row" for real multi-row lists - but with 0 or 1 rows there's
+            // no adjacent row to wrap to, so nothing actually changes and
+            // VALUE_CHANGED never fires, meaning cell_selected_cb() (and
+            // the "No recordings" / sole item it would speak) never runs.
+            // Fire it manually just for this case, so turning the knob
+            // still reads the one item (or reports the empty list).
+            // Genuine multi-item navigation already works via LVGL's own
+            // handling, untouched here.
+            if (table_rows <= 1) {
+                lv_event_send(table, LV_EVENT_VALUE_CHANGED, NULL);
+            }
             break;
 
         case KEY_VOL_LEFT_EDIT:
@@ -419,17 +444,38 @@ static void rec_stop_cb(button_data_t *btn_data) {
     voice_say_text_fmt("Recording stopped");
 }
 
+// Actually starts playback. No announcement here - it's spoken at arm time
+// instead (see dialog_recorder_play_cb()), same reasoning as Msg Voice's
+// start_recording()/start_sending()/start_beacon()/start_playing(): speaking
+// at the exact instant audio_set_play_mode() reconfigures the audio
+// hardware is what caused problems elsewhere in this codebase, and a
+// *shorter* announcement doesn't remove that hazard, it just changes
+// exactly when it lands.
+static void start_playing() {
+    play_armed = false;
+    pthread_create(&thread, NULL, play_thread, NULL);
+
+    buttons_unload_page();
+    buttons_load(4, &btn_play_stop);
+}
+
 static void dialog_recorder_play_cb(button_data_t *btn_data) {
+    if (play_armed) {
+        start_playing();
+        return;
+    }
+
     const char *name = get_item();
     if (!name) {
         voice_say_text_fmt("No recording selected");
         return;
     }
-    voice_say_text_fmt("Playing %s", name);
-    pthread_create(&thread, NULL, play_thread, NULL);
-
-    buttons_unload_page();
-    buttons_load(4, &btn_play_stop);
+    if (params.voice_mode.x == VOICE_OFF) {
+        start_playing();
+    } else {
+        voice_say_text_fmt("Ready to play %s, press again to start", name);
+        play_armed = true;
+    }
 }
 
 static void play_stop_cb(button_data_t *btn_data) {

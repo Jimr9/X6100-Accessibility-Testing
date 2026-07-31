@@ -208,6 +208,7 @@ static void load_table() {
         lv_table_set_cell_value(table, table_rows++, 0, "");
         lv_table_set_row_cnt(table, 1);
     }
+
 }
 
 static bool create_file() {
@@ -470,6 +471,28 @@ static void key_cb(lv_event_t * e) {
             dialog_destruct(&dialog);
             break;
 
+        case LV_KEY_LEFT:
+        case LV_KEY_RIGHT:
+            // This radio has no up/down buttons - list navigation is done
+            // entirely by turning the main knob, which LVGL delivers as
+            // LEFT/RIGHT key events here (verified directly in
+            // lv_indev.c's indev_encoder_proc - in "editing" mode, which
+            // this table's group is in, encoder rotation always sends
+            // LEFT/RIGHT, never UP/DOWN). For a single-column table LVGL's
+            // own column-wrap logic turns LEFT/RIGHT into "previous/next
+            // row" for real multi-row lists - but with 0 or 1 rows there's
+            // no adjacent row to wrap to, so nothing actually changes and
+            // VALUE_CHANGED never fires, meaning cell_selected_cb() (and
+            // the "No messages recorded" / sole item it would speak) never
+            // runs. Fire it manually just for this case, so turning the
+            // knob still reads the one item (or reports the empty list).
+            // Genuine multi-item navigation already works via LVGL's own
+            // handling, untouched here.
+            if (table_rows <= 1) {
+                lv_event_send(table, LV_EVENT_VALUE_CHANGED, NULL);
+            }
+            break;
+
         case KEY_VOL_LEFT_EDIT:
         case KEY_VOL_LEFT_SELECT:
             radio_change_vol(-1);
@@ -667,6 +690,20 @@ static void rec_stop_cb(button_data_t *btn_data) {
     voice_say_text_fmt("Recording stopped");
 }
 
+// Actually starts playback. No announcement here - it's spoken at arm time
+// instead (see dialog_msg_voice_play_cb()), same reasoning as
+// start_recording()/start_sending()/start_beacon(): speaking at the exact
+// instant audio_set_play_mode() reconfigures the audio hardware is what
+// caused problems elsewhere in this codebase, and a *shorter* announcement
+// doesn't remove that hazard, it just changes exactly when it lands.
+static void start_playing() {
+    state = MSG_VOICE_OFF;
+    pthread_create(&thread, NULL, play_thread, NULL);
+
+    buttons_unload_page();
+    buttons_load(4, &btn_play_stop);
+}
+
 void dialog_msg_voice_play_cb(button_data_t *btn_data) {
     if (state == MSG_VOICE_OFF) {
         const char *name = get_item();
@@ -674,11 +711,14 @@ void dialog_msg_voice_play_cb(button_data_t *btn_data) {
             voice_say_text_fmt("No message selected");
             return;
         }
-        voice_say_text_fmt("Playing %s", name);
-        pthread_create(&thread, NULL, play_thread, NULL);
-
-        buttons_unload_page();
-        buttons_load(4, &btn_play_stop);
+        if (params.voice_mode.x == VOICE_OFF) {
+            start_playing();
+        } else {
+            voice_say_text_fmt("Ready to play %s, press again to start", name);
+            state = MSG_VOICE_ARMED_PLAY;
+        }
+    } else if (state == MSG_VOICE_ARMED_PLAY) {
+        start_playing();
     }
 }
 

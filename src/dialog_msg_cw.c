@@ -32,6 +32,17 @@ static lv_obj_t         *table;
 static int16_t          table_rows = 0;
 static uint16_t         last_spoken_row = LV_TABLE_CELL_NONE;
 
+// Mirrors dialog_msg_voice.c's MSG_VOICE_ARMED_SEND/BEACON pattern: arm on
+// the first press (announces and waits), key the transmitter silently on
+// the second, so the announcement can never land at the same instant as
+// cw_encoder_send() actually keys the radio.
+typedef enum {
+    MSG_CW_OFF,
+    MSG_CW_ARMED_SEND,
+    MSG_CW_ARMED_BEACON,
+} msg_cw_state_t;
+
+static msg_cw_state_t   state = MSG_CW_OFF;
 
 static void init();
 static void construct_cb(lv_obj_t *parent);
@@ -40,6 +51,8 @@ static void key_cb(lv_event_t * e);
 static void cell_selected_cb(lv_event_t * e);
 static void send_stop_cb(button_data_t *btn_data);
 static void beacon_stop_cb(button_data_t *btn_data);
+static void start_sending(const char *msg);
+static void start_beacon(const char *msg);
 
 static void dialog_msg_cw_send_cb(button_data_t *btn_data);
 static void dialog_msg_cw_beacon_cb(button_data_t *btn_data);
@@ -197,6 +210,16 @@ static void construct_cb(lv_obj_t *parent) {
     last_spoken_row = LV_TABLE_CELL_NONE;
 
     params_msg_cw_load();
+
+    // Unlike the directory-listing-based message dialogs, dialog_msg_cw_append()
+    // never runs at all when there are zero saved messages, so the table is
+    // left with no rows and nothing to select. Add the same blank placeholder
+    // row the other dialogs use - table_rows deliberately stays 0 so get_msg()
+    // still correctly reports "nothing selected" for Send/Beacon/Delete.
+    if (table_rows == 0) {
+        lv_table_set_cell_value(table, 0, 0, "");
+        lv_table_set_row_cnt(table, 1);
+    }
     main_screen_lock_mode(true);
 }
 
@@ -205,6 +228,7 @@ static void destruct_cb() {
         free(ids);
     }
 
+    state = MSG_CW_OFF;
     cw_encoder_stop();
     textarea_window_close();
     main_screen_lock_mode(false);
@@ -220,6 +244,28 @@ static void key_cb(lv_event_t * e) {
 
         case KEYBOARD_F4:
             dialog_msg_cw_edit_cb(NULL);
+            break;
+
+        case LV_KEY_LEFT:
+        case LV_KEY_RIGHT:
+            // This radio has no up/down buttons - list navigation is done
+            // entirely by turning the main knob, which LVGL delivers as
+            // LEFT/RIGHT key events here (verified directly in
+            // lv_indev.c's indev_encoder_proc - in "editing" mode, which
+            // this table's group is in, encoder rotation always sends
+            // LEFT/RIGHT, never UP/DOWN). For a single-column table LVGL's
+            // own column-wrap logic turns LEFT/RIGHT into "previous/next
+            // row" for real multi-row lists - but with 0 or 1 rows there's
+            // no adjacent row to wrap to, so nothing actually changes and
+            // VALUE_CHANGED never fires, meaning cell_selected_cb() (and
+            // the "No messages" / sole item it would speak) never runs.
+            // Fire it manually just for this case, so turning the knob
+            // still reads the one item (or reports the empty list).
+            // Genuine multi-item navigation already works via LVGL's own
+            // handling, untouched here.
+            if (table_rows <= 1) {
+                lv_event_send(table, LV_EVENT_VALUE_CHANGED, NULL);
+            }
             break;
 
         case KEY_VOL_LEFT_EDIT:
@@ -306,6 +352,16 @@ void dialog_msg_cw_append(uint32_t id, const char *val) {
     table_rows++;
 }
 
+// Actually keys the transmitter and starts sending. No announcement here -
+// it's spoken at arm time instead (see dialog_msg_cw_send_cb()), so it
+// can't land at the same instant as cw_encoder_send() keys the radio.
+static void start_sending(const char *msg) {
+    state = MSG_CW_OFF;
+    cw_encoder_send(msg, false);
+    buttons_unload_page();
+    buttons_load(1, &btn_send_stop);
+}
+
 void dialog_msg_cw_send_cb(button_data_t *btn_data) {
     const char *msg = get_msg();
 
@@ -314,10 +370,17 @@ void dialog_msg_cw_send_cb(button_data_t *btn_data) {
         return;
     }
 
-    voice_say_text_fmt("Sending %s", msg);
-    cw_encoder_send(msg, false);
-    buttons_unload_page();
-    buttons_load(1, &btn_send_stop);
+    if (state == MSG_CW_ARMED_SEND) {
+        start_sending(msg);
+        return;
+    }
+
+    if (params.voice_mode.x == VOICE_OFF) {
+        start_sending(msg);
+    } else {
+        voice_say_text_fmt("Ready to send %s, press again to start", msg);
+        state = MSG_CW_ARMED_SEND;
+    }
 }
 
 static void send_stop_cb(button_data_t *btn_data) {
@@ -325,6 +388,15 @@ static void send_stop_cb(button_data_t *btn_data) {
     buttons_unload_page();
     buttons_load_page_quiet(&buttons_page_msg_cw_1);
     voice_say_text_fmt("Send stopped");
+}
+
+// See start_sending() - same reasoning, applied to the beacon's repeating
+// send.
+static void start_beacon(const char *msg) {
+    state = MSG_CW_OFF;
+    cw_encoder_send(msg, true);
+    buttons_unload_page();
+    buttons_load(2, &btn_beacon_stop);
 }
 
 void dialog_msg_cw_beacon_cb(button_data_t *btn_data) {
@@ -335,10 +407,17 @@ void dialog_msg_cw_beacon_cb(button_data_t *btn_data) {
         return;
     }
 
-    voice_say_text_fmt("Beacon started, %s", msg);
-    cw_encoder_send(msg, true);
-    buttons_unload_page();
-    buttons_load(2, &btn_beacon_stop);
+    if (state == MSG_CW_ARMED_BEACON) {
+        start_beacon(msg);
+        return;
+    }
+
+    if (params.voice_mode.x == VOICE_OFF) {
+        start_beacon(msg);
+    } else {
+        voice_say_text_fmt("Ready to beacon %s, press again to start", msg);
+        state = MSG_CW_ARMED_BEACON;
+    }
 }
 
 static void beacon_stop_cb(button_data_t *btn_data) {

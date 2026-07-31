@@ -16,12 +16,14 @@
 
 typedef enum {
     MSG_VOICE_OFF = 0,
-    // Rec/Send/Beacon each pressed once with voice on; waiting for a second
-    // press to actually start - see dialog_msg_voice_rec_cb(),
-    // dialog_msg_voice_send_cb(), dialog_msg_voice_beacon_cb().
+    // Rec/Send/Beacon/Play each pressed once with voice on; waiting for a
+    // second press to actually start - see dialog_msg_voice_rec_cb(),
+    // dialog_msg_voice_send_cb(), dialog_msg_voice_beacon_cb(),
+    // dialog_msg_voice_play_cb().
     MSG_VOICE_ARMED_RECORD,
     MSG_VOICE_ARMED_SEND,
     MSG_VOICE_ARMED_BEACON,
+    MSG_VOICE_ARMED_PLAY,
     MSG_VOICE_RECORD,
     MSG_VOICE_PLAY
 } msg_voice_state_t;
