@@ -329,20 +329,33 @@ static void destruct_cb() {
 
 static void load_band(int8_t dir) {
     cfg_digital_type_t type;
+    const char         *mode_name;
     switch (subject_get_int(cfg.ft8_protocol.val)) {
         case FTX_PROTOCOL_FT8:
             type = CFG_DIG_TYPE_FT8;
+            mode_name = "F T 8";
             lv_finder_set_width(finder, FT8_WIDTH_HZ);
             break;
 
         case FTX_PROTOCOL_FT4:
             type = CFG_DIG_TYPE_FT4;
+            mode_name = "F T 4";
             lv_finder_set_width(finder, FT4_WIDTH_HZ);
             break;
     }
     bool res = cfg_digital_load(dir, type);
     if (res) {
         msg_update_text_fmt("%s", cfg_digital_label_get());
+        if (dir == 0) {
+            // dir == 0 only ever happens from construct_cb's initial sync on
+            // dialog open (band_cb, the Band Up/Down handler, only ever
+            // passes +1/-1) - announce which mode this is, since nothing
+            // else in the open path does (see the ACTION_APP_FT8 comment in
+            // main_screen.c).
+            voice_say_prompted_freq_now(mode_name, subject_get_int(cfg_cur.fg_freq));
+        } else {
+            voice_say_freq_now(subject_get_int(cfg_cur.fg_freq));
+        }
     }
 }
 

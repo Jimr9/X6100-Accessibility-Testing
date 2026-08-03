@@ -105,6 +105,8 @@ voice_item_t voice_item[VOICES_NUM] = {
     {.name = "slt",         .label = "SLT (En)",     .welcome = "Hello. This is voice S L T"  },
     {.name = "alan",        .label = "Alan (En)",    .welcome = "Hello. This is voice Alan"   },
     {.name = "evgeniy-eng", .label = "Evgeniy (En)", .welcome = "Hello. This is voice Evgeniy"},
+    {.name = "bdl",         .label = "BDL (En)",     .welcome = "Hello. This is voice B D L"  },
+    {.name = "clb",         .label = "CLB (En)",     .welcome = "Hello. This is voice C L B"  },
 };
 
 static void * say_thread(void *arg) {
@@ -370,7 +372,7 @@ void voice_say_prompted_fmt(const char *prompt, const char *fmt, ...) {
     pthread_create(&thread, NULL, say_thread, NULL);
 }
 
-void voice_say_freq(uint64_t freq) {
+static void voice_say_freq_impl(uint64_t freq, uint32_t say_delay) {
     if (!voice_enable()) {
         return;
     }
@@ -394,7 +396,56 @@ void voice_say_freq(uint64_t freq) {
 
     voice_stop_current();
 
-    delay = voice_freq_debounce_delay();
+    delay = say_delay;
+    pthread_create(&thread, NULL, say_thread, NULL);
+}
+
+// For continuous VFO-knob tuning, debounced against fast spinning - see
+// voice_freq_debounce_delay().
+void voice_say_freq(uint64_t freq) {
+    voice_say_freq_impl(freq, voice_freq_debounce_delay());
+}
+
+// For a discrete, one-shot frequency change (e.g. a button press that jumps
+// straight to a new frequency) - nothing to debounce against, so this should
+// read back immediately like any other button-press announcement, not wait
+// through the knob-tuning delay.
+void voice_say_freq_now(uint64_t freq) {
+    voice_say_freq_impl(freq, 0);
+}
+
+// Combines a spoken prefix with an immediate frequency reading in one
+// utterance, e.g. "F T 8, 14.074" when opening a mode's dialog. Deliberately
+// one call rather than a prompt announcement followed by voice_say_freq_now()
+// - two separate calls each stop whatever is currently speaking, so the
+// first would just get cut off by the second before it was ever heard.
+void voice_say_prompted_freq_now(const char *prompt, uint64_t freq) {
+    if (!voice_enable()) {
+        return;
+    }
+
+    uint16_t mhz, khz, hz;
+    split_freq(freq, &mhz, &khz, &hz);
+
+    int    n   = snprintf(buf, sizeof(buf), "%s, ", prompt);
+    size_t pos = (n > 0 && (size_t)n < sizeof(buf)) ? (size_t)n : sizeof(buf) - 1;
+
+    if (hz || khz) {
+        int n2 = snprintf(buf + pos, sizeof(buf) - pos, "%i.", mhz);
+        pos += (n2 > 0) ? (size_t)n2 : 0;
+        if (hz) {
+            snprintf(buf + pos, sizeof(buf) - pos, "%i.%i", khz, hz);
+        } else {
+            snprintf(buf + pos, sizeof(buf) - pos, "%i", khz);
+        }
+    } else {
+        snprintf(buf + pos, sizeof(buf) - pos, "%i", mhz);
+    }
+    prompt_len = 0;
+
+    voice_stop_current();
+
+    delay = 0;
     pthread_create(&thread, NULL, say_thread, NULL);
 }
 

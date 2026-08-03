@@ -16,7 +16,7 @@ extern "C" {
 #include <stdint.h>
 #endif
 
-#define VOICES_NUM 4
+#define VOICES_NUM 6
 
 typedef struct {
     const char *name;
@@ -39,6 +39,8 @@ void voice_say_text_fmt(const char * fmt, ...);
 void voice_delay_say_text_fmt(const char * fmt, ...);
 void voice_say_prompted_fmt(const char *prompt, const char * fmt, ...);
 void voice_say_freq(uint64_t freq);
+void voice_say_freq_now(uint64_t freq);
+void voice_say_prompted_freq_now(const char *prompt, uint64_t freq);
 
 void voice_say_bool(const char *prompt, bool x);
 void voice_say_int(const char *prompt, int32_t x);
