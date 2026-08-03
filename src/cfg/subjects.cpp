@@ -84,16 +84,36 @@ void Subject::force_paused_notify() {
 }
 
 void Subject::notify() {
-    if (is_notifying) {
-        LV_LOG_ERROR("Already notifying: %p", this);
+    // Local-only fix for upstream issue #261 (band-switch/tuning
+    // self-deadlock). A re-entrant call happens when an observer of this
+    // subject sets it again, on the same thread, while the pass below is
+    // still running - an earlier stopgap version of this fix just made that
+    // re-entrant call a no-op, which avoided the deadlock but let the value
+    // change leak into the in-progress pass mid-flight: observers not yet
+    // called in that pass would see the new value early, while observers
+    // already called only ever saw the old one, so the change ended up
+    // delivered unevenly instead of once to every observer.
+    //
+    // set() (SubjectT<T>/SubjectT<const char*>) now defers the actual value
+    // change via apply_deferred() instead of writing it here and recursing,
+    // so the in-progress pass below finishes against one consistent value,
+    // and the deferred value is picked up as exactly one more full pass -
+    // see the comment at set() for the same reasoning.
+    //
+    // gdyuldin is working on an upstream fix for #261 - once that lands,
+    // this should be reconciled/removed rather than kept alongside it.
+    if (is_notifying && notifying_tid == std::this_thread::get_id()) {
+        return;
     }
-    is_notifying = true;
-    const std::lock_guard<std::mutex> lock(mutex_subscribe);
-    for (auto& observer : observers) {
-        observer->notify();
-    }
+    is_notifying  = true;
+    notifying_tid = std::this_thread::get_id();
+    do {
+        const std::lock_guard<std::mutex> lock(mutex_subscribe);
+        for (auto& observer : observers) {
+            observer->notify();
+        }
+    } while (apply_deferred());
     is_notifying = false;
-
 }
 
 data_type Subject::dtype() {
@@ -111,6 +131,21 @@ char *SubjectT<const char *>::get() {
 }
 
 void SubjectT<const char *>::set(const char *data) {
+    if (is_notifying && notifying_tid == std::this_thread::get_id()) {
+        // See the matching comment in SubjectT<T>::set() (subjects.h) and in
+        // Subject::notify() - deferred so the in-progress pass sees one
+        // consistent value throughout instead of a mix of old and new.
+        // Always record unconditionally (not gated on this->val, which is
+        // stale until apply_deferred() runs) so a later re-entrant write in
+        // the same pass that reverts back to the original value is judged
+        // against the true pre-pass val in apply_deferred(), not against a
+        // now-superseded earlier pending value.
+        const std::lock_guard<std::mutex> lock(mutex);
+        pending_val = data;
+        has_pending = true;
+        return;
+    }
+
     std::string new_val(data);
     bool        changed = false;
     {
@@ -127,6 +162,19 @@ void SubjectT<const char *>::set(const char *data) {
             this->notify();
         }
     }
+}
+
+bool SubjectT<const char *>::apply_deferred() {
+    const std::lock_guard<std::mutex> lock(mutex);
+    if (!has_pending) {
+        return false;
+    }
+    has_pending = false;
+    if (this->val != pending_val) {
+        this->val = pending_val;
+        return true;
+    }
+    return false;
 }
 
 SubjectsUpdateLock::SubjectsUpdateLock(std::initializer_list<Subject *> args) {

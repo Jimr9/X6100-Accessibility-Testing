@@ -62,7 +62,18 @@ class Subject {
     std::atomic<bool> changed = false;
 
     std::atomic<bool> is_notifying = false;
+    // Thread currently running notify() below, valid only while is_notifying
+    // is true. Lets set() tell a genuine re-entrant call (same subject, same
+    // thread, called from one of its own observers) apart from a call from
+    // another thread, which should still block on mutex_subscribe as usual.
+    std::thread::id notifying_tid;
     void notify();
+
+    // Hook for SubjectT<T>/SubjectT<const char*>: apply a value that set()
+    // deferred because it arrived re-entrantly while notify()'s pass below
+    // was still running for this subject. Returns true if a value was
+    // applied, so notify() runs one more full pass with the settled value.
+    virtual bool apply_deferred() { return false; }
 
     // Subject is not designed to be deleted
     ~Subject() = default;
@@ -82,6 +93,8 @@ template <typename T> class SubjectT : public Subject {
                   std::is_same_v<T, float>,
                   "Unsupported type");
     std::atomic<T> val;
+    std::atomic<T> pending_val{};
+    std::atomic<bool> has_pending = false;
 
   public:
     SubjectT(T val) : val(val) {};
@@ -91,6 +104,32 @@ template <typename T> class SubjectT : public Subject {
     };
 
     void set(T val) {
+        if (is_notifying && notifying_tid == std::this_thread::get_id()) {
+            // Re-entrant: one of this subject's own observers is setting it
+            // again while the notify() pass below is still running on this
+            // same thread. Defer instead of writing val now - writing here
+            // would let observers later in the current pass see this new
+            // value early while ones already called this pass only ever saw
+            // the old one, so the change would end up delivered unevenly
+            // (some observers not at all until a second pass, some only
+            // once anyway) instead of exactly once to every observer.
+            // apply_deferred() picks this up as one clean extra pass once
+            // the current one finishes.
+            //
+            // Always record the latest requested value unconditionally here,
+            // rather than only when it differs from val (val is deliberately
+            // left unwritten until apply_deferred() runs, so it's stale for
+            // the rest of this pass and not a valid thing to compare a
+            // second, later re-entrant write against - that comparison used
+            // to let a later write that reverted back to the original value
+            // get silently dropped, leaving a now-superseded earlier pending
+            // value in place instead of correctly cancelling out to no
+            // change at all). apply_deferred() does the one real comparison,
+            // against the true pre-pass val, once the cascade has settled.
+            pending_val = val;
+            has_pending = true;
+            return;
+        }
         if (this->val != val) {
             this->val = val;
             if (this->pause_notify) {
@@ -110,11 +149,27 @@ template <typename T> class SubjectT : public Subject {
             return DTYPE_FLOAT;
         return DTYPE_INVALID;
     }
+
+  protected:
+    bool apply_deferred() override {
+        if (!has_pending) {
+            return false;
+        }
+        has_pending = false;
+        T v = pending_val;
+        if (this->val != v) {
+            this->val = v;
+            return true;
+        }
+        return false;
+    }
 };
 
 template <> class SubjectT<const char*> : public Subject {
     std::mutex mutex;
     std::string val;
+    std::string pending_val;
+    std::atomic<bool> has_pending = false;
 
   public:
     SubjectT<const char*>(const char* data) : val(data) {};
@@ -123,6 +178,9 @@ template <> class SubjectT<const char*> : public Subject {
     data_type dtype() {
         return DTYPE_STR;
     }
+
+  protected:
+    bool apply_deferred() override;
 };
 
 /**
