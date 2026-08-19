@@ -817,6 +817,15 @@ static bool radio_tick() {
 
                     // TODO: change with observer on atu->loaded change
                     WITH_RADIO_LOCK(x6100_control_cmd(x6100_atu_network, pack->atu_params));
+                    // recover_processing_audio_inputs() above already waits
+                    // ~60ms internally, but live testing (2026-08-19) found
+                    // the audio path still isn't consistently ready right
+                    // after it returns - pausing execution here (e.g. with a
+                    // debugger) reliably fixed the announcement, evidence
+                    // the hardware needs more settle time than that. This
+                    // extra margin is a starting value, not a measured
+                    // minimum - tune if it's still unreliable, or too long.
+                    usleep(400000);
                     voice_say_text_fmt("Auto tuner tuning complete, S W R %.1f to 1", last_atu_vswr);
                     state = RADIO_RX;
                 } else if (pack->flag.tx) {
