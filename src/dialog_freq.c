@@ -24,6 +24,7 @@
 #include "main_screen.h"
 #include "msg.h"
 #include "voice.h"
+#include "cfg/cfg_api.h"
 
 static lv_obj_t *text;
 
@@ -78,7 +79,7 @@ static void enter_freq() {
     const char* str = lv_textarea_get_text(text);
 
     if (strlen(str) == 0) {
-        voice_say_freq(subject_get_int(cfg_cur.fg_freq));
+        voice_say_freq(cparam_i_get(cfg_fg_freq));
         return;
     }
 
@@ -110,7 +111,7 @@ static void key_cb(lv_event_t * e) {
             break;
 
         case LV_KEY_ESC:
-            voice_say_freq(subject_get_int(cfg_cur.fg_freq));
+            voice_say_freq(cparam_i_get(cfg_fg_freq));
             dialog_destruct_quiet();
             break;
 

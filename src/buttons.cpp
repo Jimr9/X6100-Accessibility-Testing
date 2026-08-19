@@ -770,6 +770,11 @@ void buttons_press(uint8_t n, bool hold) {
     button_data_t *btn_data = disp_btns[n].data;
     if (btn_data == NULL) {
         LV_LOG_WARN("Button %u is NULL", n);
+        // Blank slot - a sighted user sees an unlabeled button and already
+        // knows it does nothing here; a voice-only user gets no such cue
+        // from plain silence, which is indistinguishable from a press that
+        // just failed to register. Say so explicitly.
+        voice_say_text_fmt("Not used");
         return;
     }
     if (btn_data->disabled) {
