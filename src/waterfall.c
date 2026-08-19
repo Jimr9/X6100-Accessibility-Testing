@@ -11,6 +11,7 @@
 #include "radio.h"
 #include "events.h"
 #include "params/params.h"
+#include "cfg/cfg_api.h"
 #include "band_info.h"
 #include "meter.h"
 #include "backlight.h"
@@ -56,7 +57,7 @@ static uint16_t         last_row_id;
 
 static int32_t          radio_center_freq = 0;
 static int32_t          wf_center_freq = 0;
-static int32_t          lo_offset = 0;
+static int32_t          mode_lo_offset = 0;
 static int32_t          if_shift = 0;
 
 static uint8_t          refresh_period = 1;
@@ -65,19 +66,19 @@ static uint8_t          refresh_counter = 0;
 static uint8_t          zoom = 1;
 
 static void refresh_waterfall( void * arg);
-static void draw_middle_line();
 static void update_middle_line();
+static void middle_line_cb(lv_event_t * event);
 static void redraw_cb(lv_event_t * e);
 static void on_zoom_changed(Subject *subj, void *user_data);
 static void on_fg_freq_change(Subject *subj, void *user_data);
-static void on_lo_offset_change(Subject *subj, void *user_data);
+static void on_mode_lo_offset_change(Subject *subj, void *user_data);
 static void on_if_shift_changed(Subject *subj, void *user_data);
 static void on_grid_min_change(Subject *subj, void *user_data);
 static void on_grid_max_change(Subject *subj, void *user_data);
 
 
 lv_obj_t * waterfall_init(lv_obj_t * parent) {
-    subject_add_observer_and_call(cfg_cur.fg_freq, on_fg_freq_change, NULL);
+    subject_subscribe_and_notify((Subject*)cfg_fg_freq, on_fg_freq_change, NULL);
     wf_center_freq = radio_center_freq;
 
     obj = lv_obj_create(parent);
@@ -93,14 +94,20 @@ lv_obj_t * waterfall_init(lv_obj_t * parent) {
     lv_style_set_blend_mode(&middle_line_style, LV_BLEND_MODE_ADDITIVE);
     lv_style_set_pad_all(&middle_line_style, 0);
 
-    subject_add_delayed_observer(cfg_cur.zoom, on_zoom_changed, NULL);
-    subject_add_delayed_observer(cfg_cur.band->if_shift.val, on_if_shift_changed, NULL);
+    middle_line = lv_line_create(obj);
+    // lv_line_set_points(middle_line, middle_line_points, 2);
+    lv_obj_add_style(middle_line, &middle_line_style, 0);
+    lv_obj_center(middle_line);
+    lv_obj_add_event_cb(obj, middle_line_cb, LV_EVENT_DRAW_POST_END, NULL);
 
-    subject_add_observer_and_call(cfg_cur.lo_offset, on_lo_offset_change, NULL);
-    subject_add_observer(cfg.auto_level_enabled.val, on_grid_min_change, NULL);
-    subject_add_observer_and_call(cfg_cur.band->grid.min.val, on_grid_min_change, NULL);
-    subject_add_observer(cfg.auto_level_enabled.val, on_grid_max_change, NULL);
-    subject_add_observer_and_call(cfg_cur.band->grid.max.val, on_grid_max_change, NULL);
+    subject_subscribe_delayed_and_notify((Subject*)cfg_mode_zoom, on_zoom_changed, NULL);
+    subject_subscribe_delayed_and_notify((Subject*)cfg_band_if_shift, on_if_shift_changed, NULL);
+
+    subject_subscribe_and_notify((Subject*)cfg_mode_lo_offset, on_mode_lo_offset_change, NULL);
+    subject_subscribe((Subject*)cfg_auto_level_enabled, on_grid_min_change, NULL);
+    subject_subscribe_and_notify((Subject*)cfg_band_grid_min, on_grid_min_change, NULL);
+    subject_subscribe((Subject*)cfg_auto_level_enabled, on_grid_max_change, NULL);
+    subject_subscribe_and_notify((Subject*)cfg_band_grid_max, on_grid_max_change, NULL);
 
     return obj;
 }
@@ -126,10 +133,10 @@ void waterfall_data(float *data_buf, uint16_t size, bool tx, uint32_t base_freq,
         max = grid_max;
     }
     if (base_freq == 0) {
-        base_freq = radio_center_freq + lo_offset;
+        base_freq = radio_center_freq + mode_lo_offset;
     } else if (tx) {
         // New patched firmware
-        base_freq += lo_offset;
+        base_freq += mode_lo_offset;
     }
     wf_rows[last_row_id].center_freq = base_freq;
     wf_rows[last_row_id].width = width_hz;
@@ -192,16 +199,15 @@ void waterfall_set_height(lv_coord_t h) {
 
     waterfall_min_max_reset();
     band_info_init(obj);
-    draw_middle_line();
-    on_zoom_changed(cfg_cur.zoom, NULL);
-    on_if_shift_changed(cfg_cur.band->if_shift.val, NULL);
+    middle_line_points[1].y = height;
+    lv_line_set_points(middle_line, middle_line_points, 2);
+    lv_obj_move_background(img);
     ready = true;
 }
 
 static void middle_line_cb(lv_event_t * event) {
     if (params.waterfall_center_line.x && lv_obj_has_flag(middle_line, LV_OBJ_FLAG_HIDDEN)) {
         lv_obj_clear_flag(middle_line, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_pos(middle_line, 600, 0);
         return;
     }
     if (!params.waterfall_center_line.x && !lv_obj_has_flag(middle_line, LV_OBJ_FLAG_HIDDEN)) {
@@ -210,34 +216,25 @@ static void middle_line_cb(lv_event_t * event) {
     }
 }
 
-static void draw_middle_line() {
-    middle_line_points[1].y = height;
-    middle_line = lv_line_create(obj);
-    lv_line_set_points(middle_line, middle_line_points, 2);
-    lv_obj_add_style(middle_line, &middle_line_style, 0);
-    lv_obj_center(middle_line);
-    lv_obj_add_event_cb(obj, middle_line_cb, LV_EVENT_DRAW_POST_END, NULL);
-}
-
 void waterfall_min_max_reset() {
-    if (subject_get_int(cfg.auto_level_enabled.val)) {
+    if (param_i_get(cfg_auto_level_enabled)) {
         grid_min = DEFAULT_MIN;
         grid_max = DEFAULT_MAX;
     } else {
-        grid_min = subject_get_int(cfg_cur.band->grid.min.val);
-        grid_max = subject_get_int(cfg_cur.band->grid.max.val);
+        grid_min = param_i_get(cfg_band_grid_min);
+        grid_max = param_i_get(cfg_band_grid_max);
     }
 }
 
 void waterfall_update_max(float db) {
-    if (subject_get_int(cfg.auto_level_enabled.val)) {
-        grid_max = db - subject_get_float(cfg.auto_level_offset.val);
+    if (param_i_get(cfg_auto_level_enabled)) {
+        grid_max = db - param_f_get(cfg_auto_level_offset);
     }
 }
 
 void waterfall_update_min(float db) {
-    if (subject_get_int(cfg.auto_level_enabled.val)) {
-        grid_min = db - subject_get_float(cfg.auto_level_offset.val);
+    if (param_i_get(cfg_auto_level_enabled)) {
+        grid_min = db - param_f_get(cfg_auto_level_offset);
     }
 }
 
@@ -332,24 +329,24 @@ static void refresh_waterfall( void * arg) {
 }
 
 static void on_zoom_changed(Subject *subj, void *user_data) {
-    zoom = subject_get_int(subj);
+    zoom = subject_i_get((SubjectInt*)subj);
     update_middle_line();
 }
 
 static void on_if_shift_changed(Subject *subj, void *user_data) {
     delay = 2;
-    if_shift = subject_get_int(subj);
-    radio_center_freq = subject_get_int(cfg_cur.fg_freq) - if_shift;
+    if_shift = subject_i_get((SubjectInt*)subj);
+    radio_center_freq = cparam_i_get(cfg_fg_freq) - if_shift;
     update_middle_line();
 }
 
 static void on_fg_freq_change(Subject *subj, void *user_data) {
     delay = 2;
-    radio_center_freq = subject_get_int(subj) - if_shift;
+    radio_center_freq = subject_i_get((SubjectInt*)subj) - if_shift;
 }
 
-static void on_lo_offset_change(Subject *subj, void *user_data) {
-    lo_offset = subject_get_int(subj);
+static void on_mode_lo_offset_change(Subject *subj, void *user_data) {
+    mode_lo_offset = subject_i_get((SubjectInt*)subj);
 }
 
 static void update_middle_line() {
@@ -359,12 +356,12 @@ static void update_middle_line() {
 }
 
 static void on_grid_min_change(Subject *subj, void *user_data) {
-    if (!subject_get_int(cfg.auto_level_enabled.val)) {
-        grid_min = subject_get_int(cfg_cur.band->grid.min.val);
+    if (!param_i_get(cfg_auto_level_enabled)) {
+        grid_min = param_i_get(cfg_band_grid_min);
     }
 }
 static void on_grid_max_change(Subject *subj, void *user_data) {
-    if (!subject_get_int(cfg.auto_level_enabled.val)) {
-        grid_max = subject_get_int(cfg_cur.band->grid.max.val);
+    if (!param_i_get(cfg_auto_level_enabled)) {
+        grid_max = param_i_get(cfg_band_grid_max);
     }
 }
