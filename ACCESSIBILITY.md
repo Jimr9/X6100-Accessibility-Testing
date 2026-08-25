@@ -19,7 +19,7 @@ Menus and settings are otherwise navigated with the same knob used for everythin
 
 ## Known limitations
 
-- **SWR Scan**: starting or stopping a scan can wedge the speech engine entirely (radio keeps working, RX audio is fine, but no more speech until a full power cycle). Root cause not yet found - it's not about what gets announced, since it still happens with zero announcements anywhere near the scan. Avoid relying on SWR Scan with voice on for now.
-- **FT8 / band-switching**: tuning across a band boundary (not just within FT8) can deadlock the whole application (frozen, but process alive). Reported upstream as [issue #262](https://github.com/gdyuldin/x6100_gui/issues/262). Unrelated to voice/accessibility - reproducible on plain upstream too.
+- **SWR Scan and ATU tuning**: starting/stopping an SWR scan, or hearing the result after an auto-tune, can occasionally wedge the speech engine entirely (radio keeps working, RX audio is fine, but no more speech until a soft reset - hold LOCK; SWR Scan's version has needed a full power cycle, ATU's has recovered with just the LOCK-hold). Root cause not yet found, but as of 2026-08-25 it's confirmed *not* an accessibility-code bug: live gdb tracing shows the announcement call happens completely normally (right text, nothing blocking it) right before the wedge, so whatever's happening is downstream in the actual audio path, likely triggered by the RF hardware mode toggle itself rather than anything about the speech timing. The two look like the same underlying issue reached via two different hardware-control paths. Avoid relying on SWR Scan or ATU auto-tune with voice on for now.
+- **FT8 / band-switching deadlock**: RESOLVED as of upstream v0.34.2 (gdyuldin's parameter/Subject redesign, see [issue #261](https://github.com/gdyuldin/x6100_gui/issues/261)). No longer an issue on current builds.
 
 Everything else has been live-tested on real hardware. Feedback welcome.
