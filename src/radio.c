@@ -121,7 +121,6 @@ static uint64_t         now_time;
 static uint64_t         prev_time;
 static uint64_t         idle_time;
 static float             last_atu_vswr = 0.0f;
-static bool              atu_announce_pending = false;
 static bool             mute = false;
 
 static cfloat           samples_buf[RADIO_SAMPLES*2];
@@ -348,18 +347,8 @@ bool radio_change_spmode(int16_t df) {
 
 void radio_start_atu() {
     if (state == RADIO_RX) {
-        atu_announce_pending = false;
         state = RADIO_ATU_START;
     }
-}
-
-bool radio_atu_announce_pending() {
-    if (!atu_announce_pending) {
-        return false;
-    }
-    atu_announce_pending = false;
-    voice_say_text_fmt("Auto tuner tuning complete, S W R %.1f to 1", last_atu_vswr);
-    return true;
 }
 
 bool radio_start_swrscan() {
@@ -828,16 +817,7 @@ static bool radio_tick() {
 
                     // TODO: change with observer on atu->loaded change
                     WITH_RADIO_LOCK(x6100_control_cmd(x6100_atu_network, pack->atu_params));
-                    // Not spoken here. Live testing (2026-08-19) confirmed
-                    // the tuner hardware needs a settle pause after tuning
-                    // before the audio path is safe to use, but how long
-                    // varies with how far off the match was (longer tunes
-                    // on some bands, shorter on others) - no fixed delay is
-                    // trustworthy (same reasoning as the still-unresolved
-                    // SWR Scan wedge, see dialog_swrscan.c). Instead, defer
-                    // to the next explicit ATU key press as the sync point:
-                    // see radio_atu_announce_pending().
-                    atu_announce_pending = true;
+                    voice_say_text_fmt("Auto tuner tuning complete, S W R %.1f to 1", last_atu_vswr);
                     state = RADIO_RX;
                 } else if (pack->flag.tx) {
                     // pack->vswr is only meaningful while flag.tx is set - by
