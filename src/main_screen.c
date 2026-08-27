@@ -489,6 +489,9 @@ static void main_screen_keypad_cb(lv_event_t * e) {
 
         case KEYPAD_ATU:
             if (keypad->state == KEYPAD_RELEASE) {
+                if (radio_atu_announce_pending()) {
+                    break;
+                }
                 toggle_atu_enabled();
 
                 if (params.mag_info.x) {

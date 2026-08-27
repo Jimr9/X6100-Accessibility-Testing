@@ -36,6 +36,16 @@ static lv_coord_t           h;
 
 static bool                 run = false;
 
+// Arm/second-press state for the Run button (see dialog_swrscan_run_cb):
+// armed - idle, next press starts a scan; results_pending - a scan just
+// stopped and its lowest/highest SWR hasn't been spoken yet.
+static bool                 armed = false;
+static bool                 results_pending = false;
+static float                last_min_vswr;
+static uint32_t             last_min_freq;
+static float                last_max_vswr;
+static uint32_t             last_max_freq;
+
 static uint16_t             freq_index;
 static uint32_t             freq_start;
 static uint32_t             freq_center;
@@ -56,6 +66,7 @@ static void key_cb(lv_event_t * e);
 static void dialog_swrscan_run_cb(button_data_t *btn_data);
 static void dialog_swrscan_scale_cb(button_data_t *btn_data);
 static void dialog_swrscan_span_cb(button_data_t *btn_data);
+static void record_last_result();
 
 static void set_span(Subject *subj, void *user_data);
 static void set_linear(Subject *subj, void *user_data);
@@ -284,9 +295,13 @@ static void construct_cb(lv_obj_t *parent) {
 
 static void destruct_cb() {
     if (run) {
-        // Stop
+        // Stop - dialog_swrscan_run_cb(NULL) is the force-stop path, bypassing
+        // the arm/announce state machine entirely (see below): the dialog is
+        // closing, so there's nothing left to announce results into.
         dialog_swrscan_run_cb(NULL);
     }
+    armed = false;
+    results_pending = false;
     if (freq_obs) {
         param_unsubscribe((Observer*)freq_obs);
         freq_obs = NULL;
@@ -322,27 +337,78 @@ static void key_cb(lv_event_t * e) {
     }
 }
 
+// Fills last_min/max_vswr/freq from the just-finished scan's data[]. Only
+// the portion actually swept is considered - if stopped before completing
+// a lap, unvisited slots still hold do_init()'s 1.0f placeholder, which
+// would wrongly look like the best possible SWR reading.
+static void record_last_result() {
+    uint16_t n = completed_lap ? STEPS : freq_index;
+    if (n == 0) {
+        results_pending = false;
+        return;
+    }
+    uint16_t min_i = 0, max_i = 0;
+    last_min_vswr = data[0];
+    last_max_vswr = data[0];
+    for (uint16_t i = 1; i < n; i++) {
+        if (data[i] < last_min_vswr) {
+            last_min_vswr = data[i];
+            min_i = i;
+        }
+        if (data[i] > last_max_vswr) {
+            last_max_vswr = data[i];
+            max_i = i;
+        }
+    }
+    last_min_freq = freq_start + (uint64_t)(freq_stop - freq_start) * min_i / STEPS;
+    last_max_freq = freq_start + (uint64_t)(freq_stop - freq_start) * max_i / STEPS;
+    results_pending = true;
+}
+
 void dialog_swrscan_run_cb(button_data_t *btn_data) {
+    if (btn_data == NULL) {
+        // Dialog closing while a scan is active - stop immediately and
+        // silently, bypassing the arm/announce flow below entirely (nothing
+        // left to announce into a dialog that's already gone).
+        if (run) {
+            run = false;
+            radio_stop_swrscan();
+            radio_set_freq(freq_center);
+            mem_load(MEM_BACKUP_ID);
+        }
+        return;
+    }
+
     if (run) {
         run = false;
         radio_stop_swrscan();
 
-        // No "Scan stopped" announcement here (previously reported lowest/
-        // highest SWR and how the starting frequency compared) - confirmed
-        // via live device testing that this shares the exact same hazard
-        // "Scan started" does: radio_stop_swrscan() also reconfigures the
-        // radio's audio hardware right at this instant, and speaking here
-        // wedged the speech engine badly enough that even the software's
-        // own reset couldn't recover it - only a full power cycle could.
-        // A fixed delay isn't a safe alternative either: there's no way to
-        // know how long the radio's hardware actually needs to settle, and
-        // guessing wrong risks the same lockup. Needs a real fix (a
-        // detectable "safe to speak" signal, if one exists) before this is
-        // safe to announce again, not a quick patch.
+        // No "Scan stopped" announcement here - confirmed via live device
+        // testing that this shares the exact same hazard "Scan started"
+        // does: radio_stop_swrscan() reconfigures the radio's audio
+        // hardware right at this instant, and speaking here wedged the
+        // speech engine badly enough that even the software's own reset
+        // couldn't recover it - only a full power cycle could. Record the
+        // result instead and defer speaking it to the next idle press,
+        // once the hardware toggle is safely behind us.
+        record_last_result();
 
         radio_set_freq(freq_center);
         mem_load(MEM_BACKUP_ID);
+    } else if (results_pending) {
+        // Idle, with a result from the scan that just stopped - speak it,
+        // and treat this same press as re-arming for next time, so the
+        // total press count for a start->stop->hear-results cycle doesn't
+        // change from before this pattern was added.
+        results_pending = false;
+        voice_say_text_fmt("Scan complete, lowest S W R %.1f at %u kilohertz, highest %.1f at %u kilohertz",
+                            last_min_vswr, last_min_freq / 1000, last_max_vswr, last_max_freq / 1000);
+        armed = true;
+    } else if (!armed) {
+        armed = true;
+        voice_say_text_fmt("S W R Scan, press again to start");
     } else {
+        armed = false;
         mem_save(MEM_BACKUP_ID);
         do_init();
         radio_set_freq(freq_start);
@@ -351,8 +417,7 @@ void dialog_swrscan_run_cb(button_data_t *btn_data) {
         // at this instant to sweep the band. Speaking at this exact moment
         // appears to make the speech engine grab the audio device just as
         // the radio takes it over for the scan, which wedges speech
-        // completely (not just here - everywhere) until a hard reset. Needs
-        // a real fix before this is safe to add back, not a quick patch.
+        // completely (not just here - everywhere) until a hard reset.
         run = radio_start_swrscan();
     }
 }

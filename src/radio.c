@@ -121,6 +121,7 @@ static uint64_t         now_time;
 static uint64_t         prev_time;
 static uint64_t         idle_time;
 static float             last_atu_vswr = 0.0f;
+static bool              atu_announce_pending = false;
 static bool             mute = false;
 
 static cfloat           samples_buf[RADIO_SAMPLES*2];
@@ -347,8 +348,18 @@ bool radio_change_spmode(int16_t df) {
 
 void radio_start_atu() {
     if (state == RADIO_RX) {
+        atu_announce_pending = false;
         state = RADIO_ATU_START;
     }
+}
+
+bool radio_atu_announce_pending() {
+    if (!atu_announce_pending) {
+        return false;
+    }
+    atu_announce_pending = false;
+    voice_say_text_fmt("Auto tuner tuning complete, S W R %.1f to 1", last_atu_vswr);
+    return true;
 }
 
 bool radio_start_swrscan() {
@@ -817,7 +828,16 @@ static bool radio_tick() {
 
                     // TODO: change with observer on atu->loaded change
                     WITH_RADIO_LOCK(x6100_control_cmd(x6100_atu_network, pack->atu_params));
-                    voice_say_text_fmt("Auto tuner tuning complete, S W R %.1f to 1", last_atu_vswr);
+                    // Not spoken here. Confirmed via live testing (and via
+                    // gdyuldin's explanation of the BASE-firmware mixing
+                    // dropout, see ACCESSIBILITY.md) that no delay length
+                    // reliably avoids the post-ATU speech wedge - it isn't a
+                    // timing race. The arm/second-press pattern doesn't fix
+                    // the wedge either, but empirically seems a bit more
+                    // reliable in practice, so results are deferred to the
+                    // next explicit ATU key press: see
+                    // radio_atu_announce_pending().
+                    atu_announce_pending = true;
                     state = RADIO_RX;
                 } else if (pack->flag.tx) {
                     // pack->vswr is only meaningful while flag.tx is set - by

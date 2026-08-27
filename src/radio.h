@@ -62,6 +62,14 @@ void radio_set_charger(bool on);
 
 void radio_start_atu();
 
+/**
+ * If an ATU tuning result is waiting to be announced (tuning finished but
+ * not yet spoken), speak it now and return true. Otherwise return false -
+ * the caller should fall back to its normal action (e.g. ATU on/off
+ * toggle) when this returns false.
+ */
+bool radio_atu_announce_pending();
+
 bool radio_start_swrscan();
 void radio_stop_swrscan();
 
