@@ -8,7 +8,7 @@ Flash the image from [Releases](https://github.com/Jimr9/X6100-Accessibility-Tes
 
 ## One thing worth knowing before you start
 
-A few actions - starting a **recording**, **sending** a saved message, **beaconing**, and **playing back** a recording - use a two-step "arm" pattern instead of doing the thing on the first press:
+A few actions - starting a **recording**, **sending** a saved message, **beaconing**, **playing back** a recording, and **Bluetooth headset PTT** - use a two-step "arm" pattern instead of doing the thing on the first press:
 
 1. First press: announces what it's about to do ("Ready to record, press again to start") and waits.
 2. Second press: does it, silently.
@@ -20,7 +20,7 @@ Menus and settings are otherwise navigated with the same knob used for everythin
 ## Known limitations
 
 - **SWR Scan and ATU tuning**: starting/stopping an SWR scan, or hearing the result after an auto-tune, can occasionally wedge the speech engine entirely (radio keeps working, RX audio is fine, but no more speech until a soft reset - hold LOCK; SWR Scan's version has needed a full power cycle, ATU's has recovered with just the LOCK-hold). Confirmed as of 2026-08-26 this is a BASE firmware issue, not a bug in this fork or the GUI app: per gdyuldin, BASE mixes several audio sources (handset mic, internal mic, USB soundcard, and the Linux/GUI side) into one output, and after ATU (and possibly SWR Scan) runs, BASE stops feeding the Linux-side input into that mix - so nothing the app plays can be heard, even though PulseAudio/ALSA both report a fully healthy stream the whole time. No GUI-side fix eliminates the wedge itself; gdyuldin has a patched BASE firmware that aims to fix this, at least for the ATU case; the latest public BASE patch release (r13, 2026-09-30) does not mention it, so treat it as still unfixed. Both the ATU key and the SWR Scan Run button use a press-once-to-arm, press-again-to-act pattern (results, when there are any to report, are read out on the next idle press after stopping) - this doesn't fix the underlying wedge, but keeps the hazardous hardware toggle and the announcement further apart, which live testing suggests is somewhat more reliable in practice. Avoid relying on SWR Scan or ATU auto-tune with voice on for now.
-- **Bluetooth window** (new upstream in this build, APP menu): not yet given spoken feedback - its controls and device list are silent. When Bluetooth listening is on, speech goes to the Bluetooth headphones instead of the radio's speaker.
+- **Bluetooth window** (APP menu, new upstream in this build): opens with a spoken summary; the Status button (page 3) repeats it. Turning the knob reads each device with its position ("2 of 5"). Connections, scan results, pairing codes (digit by digit) and failures are spoken as they happen. Nothing is spoken while the headset PTT is transmitting - with listening off, speech would go out on the air - so "PTT off, receiving" is the first thing you hear after an over. When Bluetooth listening is on, speech goes to the Bluetooth headphones instead of the radio's speaker.
 - **FT8 / band-switching deadlock**: RESOLVED as of upstream v0.34.2 (gdyuldin's parameter/Subject redesign, see [issue #261](https://github.com/gdyuldin/x6100_gui/issues/261)). No longer an issue on current builds.
 
 Builds up to the upstream v0.34.2 merge were live-tested on real hardware. The merge onto upstream 1.0.x (new Settings layout, Bluetooth, FT8 country/distance display) is not live-tested yet. Feedback welcome.

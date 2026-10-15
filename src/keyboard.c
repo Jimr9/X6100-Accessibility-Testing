@@ -12,6 +12,7 @@
 #include "usb_devices.h"
 
 #include "kbd_rollover.h"
+#include "voice.h"
 #include "lv_drivers/indev/evdev.h"
 #include "lv_drivers/indev/xkb.h"
 
@@ -152,11 +153,18 @@ static void setup_kbd(char *path) {
 static void check_kbd(void) {
     char       *dev_path = search_kbd_device();
     struct stat st;
+    bool        was_ready = ready;
     if (dev_path && stat(dev_path, &st) == 0) {
         if (!ready || st.st_rdev != kbd_rdev || st.st_ino != kbd_ino) setup_kbd(dev_path);
-        return;
+    } else {
+        ready = false;
     }
-    ready = false;
+    /* Only reached on hot plug (not at boot): nothing on screen says a
+     * keyboard came or went, so without sight there was no way to tell
+     * whether a plugged-in or Bluetooth keyboard took. */
+    if (ready != was_ready) {
+        voice_say_text_fmt(ready ? "Keyboard connected" : "Keyboard disconnected");
+    }
 }
 
 /* All the checks, also once one finds it: an unplugged keyboard's link can

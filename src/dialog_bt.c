@@ -51,6 +51,7 @@
 #include "msg.h"
 #include "radio.h"
 #include "styles.h"
+#include "voice.h"
 #include "wifi.h"
 #include "cfg/cfg_api.h"
 
@@ -60,6 +61,7 @@
 #include "bt_spp.h"
 #include "ft8_udp.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -88,6 +90,7 @@ static void forget_hold_cb(button_data_t *item);
 static void exit_cb(button_data_t *item);
 static void mic_gain_up_cb(button_data_t *item);
 static void mic_gain_down_cb(button_data_t *item);
+static void status_say_cb(button_data_t *item);
 
 static const char *bt_label_getter(void);
 static const char *audio_label_getter(void);
@@ -132,6 +135,11 @@ static button_data_t btn_mic = {
     .type = BTN_TEXT_FN, .label_fn = mic_gain_label_getter,
     .press = mic_gain_up_cb, .hold = mic_gain_down_cb,
 };
+/* The status panel on the left is plain labels, out of reach of the
+ * knob: this reads it out on demand. */
+static button_data_t btn_status = {
+    .type = BTN_TEXT, .label = "Status", .press = status_say_cb,
+};
 
 static buttons_page_t btn_page_1;
 static buttons_page_t btn_page_2;
@@ -139,15 +147,15 @@ static buttons_page_t btn_page_3;
 
 static button_data_t btn_next_1 = {
     .type = BTN_TEXT, .label = "(Page: 1:3)", .press = button_next_page_cb,
-    .next = &btn_page_2,
+    .next = &btn_page_2, .voice = "Bluetooth page 1",
 };
 static button_data_t btn_next_2 = {
     .type = BTN_TEXT, .label = "(Page: 2:3)", .press = button_next_page_cb,
-    .next = &btn_page_3,
+    .next = &btn_page_3, .voice = "Bluetooth page 2",
 };
 static button_data_t btn_next_3 = {
     .type = BTN_TEXT, .label = "(Page: 3:3)", .press = button_next_page_cb,
-    .next = &btn_page_1,
+    .next = &btn_page_1, .voice = "Bluetooth page 3",
 };
 
 static buttons_page_t btn_page_1 = {
@@ -157,7 +165,7 @@ static buttons_page_t btn_page_2 = {
     {&btn_next_2, &btn_scan, &btn_connect, &btn_forget, &btn_exit}
 };
 static buttons_page_t btn_page_3 = {
-    {&btn_next_3, &btn_mic}
+    {&btn_next_3, &btn_mic, &btn_status}
 };
 
 static dialog_t dialog = {
@@ -266,6 +274,477 @@ static void table_refresh(void)
         ((lv_table_t *)table)->col_act = LV_TABLE_CELL_NONE;
         lv_obj_invalidate(table);
     }
+}
+
+/* ---- Speech ------------------------------------------------------------ */
+
+/*
+ * Same conventions as the WiFi window and the message dialogs:
+ *  - each action speaks for itself when pressed; the status timer only
+ *    speaks settled changes, once each, never the "..." in-between
+ *    states (those would cut off the action's own words);
+ *  - one utterance per timer tick, the changes joined together, so they
+ *    don't interrupt one another;
+ *  - a list row is spoken when the highlight lands on another device.
+ *    The list reorders itself during a Scan and the highlight follows the
+ *    device, so "another" means another address, not another row.
+ *  - nothing at all while the headset PTT is keying or transmitting:
+ *    with listening off, speech plays through the codec, which is the
+ *    transmit audio path while the BASE is keyed.
+ */
+
+#define NAV_QUIET_MS  2000  /* hold back "Found ..." this long after a knob turn */
+#define SETTLE_TICKS  2     /* a "..." activity must last this long to be said */
+
+static bool             ptt_armed = false;
+static char             spoken_addr[18];   /* "-" = the empty-list row */
+static bt_ctl_state_t   said_ctl;
+static bt_audio_state_t said_audio;
+static bt_ptt_state_t   said_ptt;
+static bt_spp_state_t   said_spp;
+static bool             said_scanning;
+static bool             said_pairing_open;
+static char             said_activity[48];
+static const char      *settling_text = NULL;
+static int              settling_ticks = 0;
+static uint32_t         last_nav_ms = 0;
+static bt_dev_t         known[BT_DEV_MAX];
+static int              known_count = 0;
+static char             forget_addr[18];
+static char             found_first[64];
+static int              found_count = 0;
+
+static bool ptt_busy(void)
+{
+    bt_ptt_state_t st = bt_ptt_state();
+
+    return st == BT_PTT_KEYING || st == BT_PTT_TX || st == BT_PTT_UNKEYING;
+}
+
+static void bt_say(const char *fmt, ...)
+{
+    char    buf[256];
+    va_list ap;
+
+    if (ptt_busy()) {
+        return;
+    }
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    voice_say_text_fmt("%s", buf);
+}
+
+/* Name to speak: bt_dev appends " (off)" to blocked devices and uses the
+ * address when a device has no name - an address read out in full is
+ * twenty-odd syllables, so only its last two bytes. */
+static void spoken_name(const bt_dev_t *dev, char *out, size_t len, bool *off)
+{
+    size_t n = strlen(dev->name);
+
+    *off = n > 6 && strcmp(dev->name + n - 6, " (off)") == 0;
+    if (*off) {
+        n -= 6;
+    }
+    if (strncmp(dev->name, dev->addr, 17) == 0) {
+        snprintf(out, len, "Unnamed device ending %c %c %c %c",
+                 dev->addr[12], dev->addr[13], dev->addr[15], dev->addr[16]);
+    } else {
+        snprintf(out, len, "%.*s", (int)n, dev->name);
+    }
+}
+
+static const char *dev_kind(const bt_dev_t *dev)
+{
+    return dev->audio ? ", headset" : dev->input ? ", keyboard" : "";
+}
+
+static void describe_device(const bt_dev_t *dev, char *out, size_t len)
+{
+    char name[48];
+    bool off;
+
+    spoken_name(dev, name, sizeof(name), &off);
+    snprintf(out, len, "%s%s, %s", name, dev_kind(dev),
+             dev->connected ? "connected" : off ? "off" : "not connected");
+}
+
+static bool find_known(const char *addr, bt_dev_t *out)
+{
+    int i;
+
+    for (i = 0; i < known_count; i++) {
+        if (strcmp(known[i].addr, addr) == 0) {
+            if (out) {
+                *out = known[i];
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+static void snapshot_devices(void)
+{
+    int i;
+
+    known_count = 0;
+    for (i = 0; i < bt_dev_count() && i < BT_DEV_MAX; i++) {
+        if (bt_dev_get(i, &known[known_count])) {
+            known_count++;
+        }
+    }
+}
+
+/* The highlighted row, unless it was the last one spoken (force: always). */
+static void announce_selection(bool force)
+{
+    uint16_t row, col;
+    bt_dev_t dev;
+    char     text[128];
+
+    if (table == NULL) {
+        return;
+    }
+    lv_table_get_selected_cell(table, &row, &col);
+    if (row == LV_TABLE_CELL_NONE) {
+        return;
+    }
+
+    if (row_count == 0) {
+        if (!force && strcmp(spoken_addr, "-") == 0) {
+            return;
+        }
+        snprintf(spoken_addr, sizeof(spoken_addr), "-");
+        bt_say(bt_ctl_state() == BT_CTL_ON ? "No devices, press Scan"
+                                           : "No devices, Bluetooth is off");
+        return;
+    }
+    if (!selected_device(&dev)) {
+        return;
+    }
+    if (!force && strcmp(spoken_addr, dev.addr) == 0) {
+        return;
+    }
+    snprintf(spoken_addr, sizeof(spoken_addr), "%s", dev.addr);
+    describe_device(&dev, text, sizeof(text));
+    bt_say("%s, %d of %d", text, row + 1, row_count);
+}
+
+static void table_value_changed_cb(lv_event_t *e)
+{
+    (void)e;
+    announce_selection(false);
+}
+
+static void append(char *buf, size_t len, const char *fmt, ...)
+{
+    size_t  used = strlen(buf);
+    va_list ap;
+
+    if (used >= len - 1) {
+        return;
+    }
+    if (used > 0) {
+        snprintf(buf + used, len - used, ", ");
+        used = strlen(buf);
+    }
+    va_start(ap, fmt);
+    vsnprintf(buf + used, len - used, fmt, ap);
+    va_end(ap);
+}
+
+static const char *ctl_word(bt_ctl_state_t st)
+{
+    switch (st) {
+        case BT_CTL_ON:       return "on";
+        case BT_CTL_STARTING: return "starting";
+        case BT_CTL_STOPPING: return "stopping";
+        case BT_CTL_FAILED:   return "failed";
+        default:              return "off";
+    }
+}
+
+static const char *audio_word(bt_audio_state_t st)
+{
+    switch (st) {
+        case BT_AUDIO_ON:       return "on";
+        case BT_AUDIO_STARTING: return "starting";
+        case BT_AUDIO_STOPPING: return "stopping";
+        case BT_AUDIO_NO_SINK:  return "waiting, no headphones connected";
+        case BT_AUDIO_FAILED:   return "failed";
+        default:                return "off";
+    }
+}
+
+/* Everything the status panel shows, as one sentence. */
+static void status_summary(char *out, size_t len)
+{
+    bt_ctl_state_t ctl = bt_ctl_state();
+    int            left = bt_dev_visible_s();
+    int            connected = 0;
+    char           name[48] = "";
+    bool           off;
+    bt_dev_t       dev;
+    int            i;
+
+    out[0] = '\0';
+    append(out, len, "Bluetooth %s", ctl_word(ctl));
+    if (ctl == BT_CTL_OFF && !param_i_get(cfg.network.wifi_enabled())) {
+        append(out, len, "Wi-Fi and Bluetooth chip off");
+    }
+    if (ctl != BT_CTL_ON) {
+        return;
+    }
+    if (bt_dev_scanning()) {
+        append(out, len, "scanning");
+    }
+    if (left > 0) {
+        if (left >= 60) {
+            append(out, len, "pairing open, %d minute%s %d seconds left",
+                   left / 60, left / 60 == 1 ? "" : "s", left % 60);
+        } else {
+            append(out, len, "pairing open, %d seconds left", left);
+        }
+    }
+
+    for (i = 0; i < bt_dev_count(); i++) {
+        if (bt_dev_get(i, &dev) && dev.connected) {
+            if (connected == 0) {
+                spoken_name(&dev, name, sizeof(name), &off);
+            }
+            connected++;
+        }
+    }
+    append(out, len, "%d device%s", bt_dev_count(), bt_dev_count() == 1 ? "" : "s");
+    if (connected == 1) {
+        append(out, len, "%s connected", name);
+    } else if (connected > 1) {
+        append(out, len, "%d connected", connected);
+    }
+
+    append(out, len, "listening audio %s", audio_word(bt_audio_state()));
+    if (bt_spp_state() == BT_SPP_CONNECTED) {
+        append(out, len, "phone connected for F T 8 packets");
+    }
+    append(out, len, "U D P %s", udp_on ? "on" : "off");
+}
+
+/* "Type 123456 on the keyboard, Enter": the digits one by one. */
+static void spell_code(const char *activity, char *out, size_t len)
+{
+    const char *p = activity + 5;
+    char        digits[32] = "";
+    size_t      n = 0;
+
+    while (*p != '\0' && *p != ' ' && n + 3 < sizeof(digits)) {
+        digits[n++] = *p++;
+        digits[n++] = ' ';
+    }
+    digits[n ? n - 1 : 0] = '\0';
+    snprintf(out, len, "Type %s on the keyboard, then Enter", digits);
+}
+
+/* Called by the status timer after the refresh: speaks what changed. */
+static void speak_changes(void)
+{
+    char             text[256] = "";
+    bt_ctl_state_t   ctl = bt_ctl_state();
+    bt_audio_state_t audio = bt_audio_state();
+    bt_ptt_state_t   ptt = bt_ptt_state();
+    bt_spp_state_t   spp = bt_spp_state();
+    bool             scanning = bt_dev_scanning();
+    bool             pairing_open = bt_dev_visible_s() > 0;
+    const char      *act = bt_dev_activity();
+    char             name[48];
+    bool             off;
+    bt_dev_t         dev, old;
+    int              i;
+
+    /* Adapter: the press already said "turning on" / "off". */
+    if (ctl != said_ctl) {
+        if (ctl == BT_CTL_ON) {
+            append(text, sizeof(text), "Bluetooth on");
+        } else if (ctl == BT_CTL_FAILED) {
+            append(text, sizeof(text), "Bluetooth failed to start");
+        }
+        said_ctl = ctl;
+    }
+
+    /* Pairing and connecting, from bt_dev's worker. */
+    if (strcmp(act, said_activity) != 0) {
+        snprintf(said_activity, sizeof(said_activity), "%s", act);
+        settling_text = NULL;
+        if (strncmp(act, "Type ", 5) == 0) {
+            char code[96];
+
+            spell_code(act, code, sizeof(code));
+            append(text, sizeof(text), "%s", code);
+        } else if (strcmp(act, "Press the keyboard's pairing key") == 0) {
+            append(text, sizeof(text), "Press the keyboard's pairing key");
+        } else if (strcmp(act, "Not found") == 0) {
+            append(text, sizeof(text), "Not found, is it in pairing mode?");
+        } else if (strcmp(act, "Pairing failed") == 0) {
+            append(text, sizeof(text), "Pairing failed, is it in pairing mode?");
+        } else if (strcmp(act, "Connect failed") == 0) {
+            append(text, sizeof(text), "Connect failed, device busy? Hold Forget, then pair again");
+        } else if (strcmp(act, "Phone: connect from app") == 0) {
+            append(text, sizeof(text), "Phone allowed, connect from the phone app");
+        } else if (strcmp(act, "pairing...") == 0) {
+            settling_text = "Pairing";
+            settling_ticks = 0;
+        } else if (strcmp(act, "searching...") == 0) {
+            settling_text = "Searching for the device";
+            settling_ticks = 0;
+        }
+    } else if (settling_text != NULL && ++settling_ticks >= SETTLE_TICKS) {
+        append(text, sizeof(text), "%s", settling_text);
+        settling_text = NULL;
+    }
+
+    /* Devices: connected / disconnected / found / gone. */
+    for (i = 0; i < bt_dev_count(); i++) {
+        if (!bt_dev_get(i, &dev)) {
+            break;
+        }
+        spoken_name(&dev, name, sizeof(name), &off);
+        if (find_known(dev.addr, &old)) {
+            if (dev.connected != old.connected) {
+                append(text, sizeof(text), "%s %s", name,
+                       dev.connected ? "connected" : "disconnected");
+            }
+        } else if (dev.connected) {
+            /* A keyboard pairs under a fresh entry (bt_dev drops the old
+             * one first), so its success shows up as a new device. */
+            append(text, sizeof(text), "%s connected", name);
+        } else if (scanning || said_scanning) {
+            if (found_count == 0) {
+                snprintf(found_first, sizeof(found_first), "%s%s", name, dev_kind(&dev));
+            }
+            found_count++;
+        }
+    }
+    for (i = 0; i < known_count; i++) {
+        bool still = false;
+        int  j;
+
+        for (j = 0; j < bt_dev_count(); j++) {
+            if (bt_dev_get(j, &dev) && strcmp(dev.addr, known[i].addr) == 0) {
+                still = true;
+                break;
+            }
+        }
+        if (still) {
+            continue;
+        }
+        spoken_name(&known[i], name, sizeof(name), &off);
+        if (strcmp(known[i].addr, forget_addr) == 0) {
+            append(text, sizeof(text), "%s forgotten", name);
+            forget_addr[0] = '\0';
+        } else if (strcmp(known[i].addr, spoken_addr) == 0 && act[0] == '\0' &&
+                   ctl == BT_CTL_ON) {
+            /* Not while the worker is busy (a keyboard being paired leaves
+             * and comes back on purpose), nor as Bluetooth goes off. */
+            append(text, sizeof(text), "%s left the list", name);
+        }
+        if (strcmp(known[i].addr, spoken_addr) == 0) {
+            spoken_addr[0] = '\0';
+        }
+    }
+    snapshot_devices();
+
+    /* Found devices wait while the knob is being turned, so they don't cut
+     * off the row being read; the list is still settling then anyway. */
+    if (found_count > 0 && lv_tick_elaps(last_nav_ms) > NAV_QUIET_MS) {
+        if (found_count == 1) {
+            append(text, sizeof(text), "Found %s", found_first);
+        } else {
+            append(text, sizeof(text), "Found %s and %d more", found_first, found_count - 1);
+        }
+        found_count = 0;
+    }
+
+    if (said_scanning && !scanning) {
+        append(text, sizeof(text), "Scan complete, %d device%s", bt_dev_count(),
+               bt_dev_count() == 1 ? "" : "s");
+    }
+    said_scanning = scanning;
+
+    if (said_pairing_open && !pairing_open) {
+        append(text, sizeof(text), "Pairing closed, radio hidden");
+    }
+    said_pairing_open = pairing_open;
+
+    /* Listening audio: the press already said "turning on" / "off". */
+    if (audio != said_audio) {
+        if (audio == BT_AUDIO_ON) {
+            append(text, sizeof(text), "Listening audio on");
+        } else if (audio == BT_AUDIO_NO_SINK || audio == BT_AUDIO_FAILED) {
+            append(text, sizeof(text), "Listening audio %s", audio_word(audio));
+        }
+        said_audio = audio;
+    }
+
+    /* PTT: keying is silent (see bt_say); the outcome is said once the
+     * transmitter is off again. The headset button toggles it too. */
+    if (ptt != said_ptt) {
+        switch (ptt) {
+            case BT_PTT_OFF:
+                if (said_ptt == BT_PTT_TX || said_ptt == BT_PTT_KEYING ||
+                    said_ptt == BT_PTT_UNKEYING) {
+                    append(text, sizeof(text), "P T T off, receiving");
+                }
+                break;
+            case BT_PTT_TIMEOUT:
+                append(text, sizeof(text), "P T T timed out, receiving");
+                break;
+            case BT_PTT_NO_MIC:
+                append(text, sizeof(text), "P T T failed, no headset microphone");
+                break;
+            case BT_PTT_FAILED:
+                append(text, sizeof(text), "P T T failed");
+                break;
+            default:
+                break;
+        }
+        said_ptt = ptt;
+    }
+
+    /* Phone link for the FT8 packets. */
+    if (spp != said_spp) {
+        if (spp == BT_SPP_CONNECTED) {
+            append(text, sizeof(text), "Phone connected for F T 8 packets");
+        } else if (said_spp == BT_SPP_CONNECTED) {
+            append(text, sizeof(text), "Phone disconnected");
+        } else if (spp == BT_SPP_ERROR) {
+            append(text, sizeof(text), "F T 8 packet link error");
+        }
+        said_spp = spp;
+    }
+
+    if (text[0] != '\0') {
+        bt_say("%s", text);
+    }
+}
+
+/* Start every "said" state from what is true now, so opening the window
+ * doesn't announce old news. */
+static void speech_reset(void)
+{
+    ptt_armed = false;
+    spoken_addr[0] = '\0';
+    said_ctl = bt_ctl_state();
+    said_audio = bt_audio_state();
+    said_ptt = bt_ptt_state();
+    said_spp = bt_spp_state();
+    said_scanning = bt_dev_scanning();
+    said_pairing_open = bt_dev_visible_s() > 0;
+    snprintf(said_activity, sizeof(said_activity), "%s", bt_dev_activity());
+    settling_text = NULL;
+    forget_addr[0] = '\0';
+    found_count = 0;
+    last_nav_ms = 0;
+    snapshot_devices();
 }
 
 /* ---- Status ------------------------------------------------------------ */
@@ -406,6 +885,7 @@ static void status_timer_cb(lv_timer_t *t)
 
     table_refresh();
     status_refresh();
+    speak_changes();
 
     /* bt_dev works in the background; a failed pair/connect would only
      * show in the small audio line, so say it out loud once. */
@@ -517,10 +997,37 @@ static const char *udp_label_getter(void)
 
 /* ---- Actions ----------------------------------------------------------- */
 
+/* Any other action cancels a PTT that was armed and not started. */
+static void disarm_ptt(void)
+{
+    ptt_armed = false;
+}
+
+static bool require_bt_on(void)
+{
+    if (bt_ctl_state() != BT_CTL_ON) {
+        msg_update_text_fmt("Turn Bluetooth on first");
+        bt_say("Turn Bluetooth on first");
+        return false;
+    }
+    return true;
+}
+
+static bool require_selection(bt_dev_t *dev)
+{
+    if (!selected_device(dev)) {
+        msg_update_text_fmt("No device selected");
+        bt_say("No device selected");
+        return false;
+    }
+    return true;
+}
+
 static void bt_toggle_cb(button_data_t *item)
 {
     bt_ctl_state_t st = bt_ctl_state();
 
+    disarm_ptt();
     if (st == BT_CTL_OFF || st == BT_CTL_FAILED) {
         /* WiFi and Bluetooth are one chip on one power pin
          * (x6100_pin_wifi). With WiFi switched off in the WiFi window
@@ -530,8 +1037,10 @@ static void bt_toggle_cb(button_data_t *item)
         if (!param_i_get(cfg.network.wifi_enabled())) {
             wifi_power_on();
             msg_update_text_fmt("Bluetooth on - powering up the WiFi/BT chip");
+            bt_say("Bluetooth turning on, powering up the Wi-Fi and Bluetooth chip");
         } else {
             msg_update_text_fmt("Bluetooth on");
+            bt_say("Bluetooth turning on");
         }
         bt_ctl_request(true);
     } else {
@@ -541,6 +1050,7 @@ static void bt_toggle_cb(button_data_t *item)
         bt_audio_request(false);
         bt_ctl_request(false);
         msg_update_text_fmt("Bluetooth off");
+        bt_say("Bluetooth off");
     }
 
     status_refresh();
@@ -551,17 +1061,19 @@ static void audio_toggle_cb(button_data_t *item)
 {
     bt_audio_state_t st = bt_audio_state();
 
-    if (bt_ctl_state() != BT_CTL_ON) {
-        msg_update_text_fmt("Turn Bluetooth on first");
+    disarm_ptt();
+    if (!require_bt_on()) {
         return;
     }
 
     if (st == BT_AUDIO_ON || st == BT_AUDIO_STARTING) {
         bt_audio_request(false);
         msg_update_text_fmt("Bluetooth audio off");
+        bt_say("Listening audio off");
     } else {
         bt_audio_request(true);
         msg_update_text_fmt("Bluetooth audio on");
+        bt_say("Listening audio turning on");
     }
 
     buttons_refresh(item);
@@ -570,22 +1082,25 @@ static void audio_toggle_cb(button_data_t *item)
 static void connect_cb(button_data_t *item)
 {
     bt_dev_t dev;
+    char     name[48];
+    bool     off;
 
-    if (bt_ctl_state() != BT_CTL_ON) {
-        msg_update_text_fmt("Turn Bluetooth on first");
+    disarm_ptt();
+    if (!require_bt_on() || !require_selection(&dev)) {
         return;
     }
-    if (!selected_device(&dev)) {
-        msg_update_text_fmt("No device selected");
-        return;
-    }
+    spoken_name(&dev, name, sizeof(name), &off);
 
+    /* The outcome ("... connected", "Connect failed ...") comes from the
+     * status timer once bt_dev's worker is done. */
     if (dev.connected) {
         bt_dev_disconnect(dev.addr);
         msg_update_text_fmt("Disconnecting %s", dev.name);
+        bt_say("Disconnecting %s", name);
     } else {
         bt_dev_connect(dev.addr);
         msg_update_text_fmt("Connecting %s", dev.name);
+        bt_say("Connecting %s", name);
     }
 
     buttons_refresh(item);
@@ -593,17 +1108,30 @@ static void connect_cb(button_data_t *item)
 
 static void scan_cb(button_data_t *item)
 {
-    if (bt_ctl_state() != BT_CTL_ON) {
-        msg_update_text_fmt("Turn Bluetooth on first");
+    disarm_ptt();
+    if (!require_bt_on()) {
         return;
     }
     if (bt_dev_scanning()) {
+        bt_say("Already scanning");
         return;
     }
 
     bt_dev_scan();
+    found_count = 0;
     msg_update_text_fmt("Scanning - pairing open for 3 min (a phone can pair now)");
+    bt_say("Scanning, pairing open for 3 minutes");
     buttons_refresh(item);
+}
+
+/* Keys the transmitter with no announcement: speaking at that instant is
+ * the hazard the Msg Voice Send arm/second-press pattern exists for, and
+ * with listening off the speech would go out on the air. */
+static void start_ptt(void)
+{
+    ptt_armed = false;
+    bt_ptt_request(true);
+    msg_update_text_fmt("PTT on - BT microphone");
 }
 
 static void ptt_cb(button_data_t *item)
@@ -611,15 +1139,21 @@ static void ptt_cb(button_data_t *item)
     bt_ptt_state_t st = bt_ptt_state();
 
     if (st == BT_PTT_TX || st == BT_PTT_KEYING) {
+        /* "P T T off, receiving" is said once it really is off. */
+        ptt_armed = false;
         bt_ptt_request(false);
         msg_update_text_fmt("PTT off");
     } else {
-        if (bt_ctl_state() != BT_CTL_ON) {
-            msg_update_text_fmt("Turn Bluetooth on first");
+        if (!require_bt_on()) {
             return;
         }
-        bt_ptt_request(true);
-        msg_update_text_fmt("PTT on - BT microphone");
+        if (ptt_armed || param_i_get(cfg.voice.mode()) == VOICE_OFF) {
+            start_ptt();
+        } else {
+            ptt_armed = true;
+            msg_update_text_fmt("PTT: press again to transmit");
+            bt_say("Ready to transmit from the Bluetooth microphone, press again to start");
+        }
     }
 
     buttons_refresh(item);
@@ -628,52 +1162,71 @@ static void ptt_cb(button_data_t *item)
 static void forget_cb(button_data_t *item)
 {
     bt_dev_t dev;
+    char     name[48];
+    bool     off;
 
     (void)item;
-    if (!selected_device(&dev)) {
-        msg_update_text_fmt("No device selected");
+    disarm_ptt();
+    if (!require_selection(&dev)) {
         return;
     }
+    spoken_name(&dev, name, sizeof(name), &off);
     msg_update_text_fmt("Hold to forget %s", dev.name);
+    bt_say("Hold Forget to remove %s", name);
 }
 
 static void forget_hold_cb(button_data_t *item)
 {
     bt_dev_t dev;
+    char     name[48];
+    bool     off;
 
     (void)item;
-    if (bt_ctl_state() != BT_CTL_ON) {
-        msg_update_text_fmt("Turn Bluetooth on first");
+    disarm_ptt();
+    if (!require_bt_on() || !require_selection(&dev)) {
         return;
     }
-    if (!selected_device(&dev)) {
-        msg_update_text_fmt("No device selected");
-        return;
-    }
+    spoken_name(&dev, name, sizeof(name), &off);
     /* The listening loopback may be playing into this very headset. */
     if (dev.audio) {
         bt_ptt_request(false);
         bt_audio_request(false);
     }
     bt_dev_forget(dev.addr);
+    /* "<name> forgotten" once it is out of the list. */
+    snprintf(forget_addr, sizeof(forget_addr), "%s", dev.addr);
     msg_update_text_fmt("Forgetting %s - pair again in pairing mode",
                         dev.name);
+    bt_say("Forgetting %s, pair again in pairing mode", name);
 }
 
 static void udp_toggle_cb(button_data_t *item)
 {
+    disarm_ptt();
     ft8_udp_set_enabled(!udp_on);
     udp_on = ft8_udp_is_enabled();
 
     if (udp_on) {
         msg_update_text_fmt("UDP on -> %s:%u", ft8_udp_host(),
                             ft8_udp_port());
+        bt_say("U D P on, sending to %s port %u", ft8_udp_host(), ft8_udp_port());
     } else {
         msg_update_text_fmt("UDP off");
+        bt_say("U D P off");
     }
 
     status_refresh();
     buttons_refresh(item);
+}
+
+static void status_say_cb(button_data_t *item)
+{
+    char text[256];
+
+    (void)item;
+    disarm_ptt();
+    status_summary(text, sizeof(text));
+    bt_say("%s", text);
 }
 
 static void exit_cb(button_data_t *item)
@@ -697,6 +1250,18 @@ static void key_cb(lv_event_t *e)
             connect_cb(&btn_connect);
             break;
 
+        /* The knob. LVGL's own table handler has already moved the
+         * highlight by now, but the first turn after it was cleared only
+         * selects the top row and sends no VALUE_CHANGED: speak from here
+         * too (announce_selection() skips a device already spoken). */
+        case LV_KEY_LEFT:
+        case LV_KEY_RIGHT:
+        case LV_KEY_UP:
+        case LV_KEY_DOWN:
+            last_nav_ms = lv_tick_get();
+            announce_selection(false);
+            break;
+
         case KEY_VOL_LEFT_EDIT:
         case KEY_VOL_LEFT_SELECT:
             radio_change_vol(-1);
@@ -717,7 +1282,9 @@ static void construct_cb(lv_obj_t *parent)
     dialog.obj = dialog_init(parent);
 
     udp_on = ft8_udp_is_enabled();
-    buttons_load_page(&btn_page_1);
+    /* Quiet: the window speaks its own opening summary below, which a
+     * page-name announcement would race. */
+    buttons_load_page_quiet(&btn_page_1);
 
     cont = lv_obj_create(dialog.obj);
     lv_obj_remove_style(cont, NULL, LV_STATE_ANY | LV_PART_MAIN);
@@ -778,6 +1345,7 @@ static void construct_cb(lv_obj_t *parent)
     lv_obj_set_style_pad_left(table, 5, LV_PART_ITEMS);
 
     lv_obj_add_event_cb(table, key_cb, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(table, table_value_changed_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_group_add_obj(keyboard_group, table);
     lv_group_set_editing(keyboard_group, true);
 
@@ -796,6 +1364,14 @@ static void construct_cb(lv_obj_t *parent)
 
     table_refresh();
     status_refresh();
+    speech_reset();
+
+    {
+        char text[256];
+
+        status_summary(text, sizeof(text));
+        bt_say("Bluetooth window, %s", text);
+    }
 
     timer_status = lv_timer_create(status_timer_cb, TICK_MS, NULL);
 }
@@ -810,6 +1386,7 @@ static void destruct_cb(void)
     /* Never leave the transmitter keyed with nothing on screen to
      * unkey it. */
     bt_ptt_request(false);
+    ptt_armed = false;
 
     /*
      * The adapter, the SPP server and the listening loopback keep running
@@ -836,7 +1413,10 @@ static void mic_gain_step(button_data_t *item, int step)
 {
     int db = bt_audio_set_mic_gain(bt_audio_mic_gain() + step);
 
+    disarm_ptt();
     msg_update_text_fmt("Mic gain %+d dB (press +1, hold -1)", db);
+    bt_say("Headset mic gain %s%d decibels", db > 0 ? "plus " : db < 0 ? "minus " : "",
+           db < 0 ? -db : db);
     buttons_refresh(item);
 }
 

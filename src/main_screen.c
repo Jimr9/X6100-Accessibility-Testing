@@ -210,8 +210,9 @@ void main_screen_start_app(press_action_t app_action) {
             break;
 
         case ACTION_APP_BT:
+            // No "window" announcement - the Bluetooth window speaks its
+            // own opening summary, which this would race.
             dialog_construct(dialog_bt, obj);
-            voice_say_text_fmt("Bluetooth window");
             break;
 
         default:
@@ -909,6 +910,7 @@ static void low_power_cb(void * s, lv_msg_t * msg) {
             low_power_timer = lv_timer_create(low_power_timer_cb, 30000, NULL);
             lv_timer_set_repeat_count(low_power_timer, 1);
             msg_schedule_long_text_fmt("Low battery! Turning off in 30s.");
+            voice_say_text_fmt("Low battery, turning off in 30 seconds");
         }
     } else {
         if (low_power_timer) {
@@ -1077,6 +1079,7 @@ static void spectrum_key_cb(lv_event_t * e) {
 
         case KEYBOARD_SCRL_LOCK:
             lm_toggle_freq();
+            voice_say_text_fmt("Frequency %s", lm_get_freq() ? "locked" : "unlocked");
             break;
 
         case KEYBOARD_PGUP:
