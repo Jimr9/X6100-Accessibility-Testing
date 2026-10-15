@@ -8,23 +8,24 @@
 
 #include "dialog_wifi.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include "lvgl/lvgl.h"
+
+#include "wifi.h"
+#include "styles.h"
 #include "buttons.h"
 #include "events.h"
 #include "keyboard.h"
 #include "msg.h"
-#include "params/params.h"
+#include "cfg/cfg_api.h"
 #include "pubsub_ids.h"
 #include "radio.h"
 #include "textarea_window.h"
 #include "voice.h"
-#include "wifi.h"
 
-#include "lvgl/lvgl.h"
-#include <stdio.h>
-#include <stdlib.h>
-
-#define DIALOG_WIDTH 775
-#define DIALOG_HEIGHT 320
+// #define DIALOG_WIDTH 775
+// #define DIALOG_HEIGHT 320
 #define PARAMS_WIDTH 300
 
 #define SIZE_OF_ARRAY(arr) (sizeof(arr) / sizeof(*arr))
@@ -128,7 +129,6 @@ static dialog_t dialog = {
     .construct_cb = construct_cb,
     .destruct_cb = destruct_cb,
     .btn_page = &btn_page,
-    .audio_cb = NULL,
     .key_cb = key_cb,
 };
 
@@ -137,7 +137,7 @@ dialog_t *dialog_wifi = &dialog;
 static void construct_cb(lv_obj_t *parent) {
     dialog.obj = dialog_init(parent);
 
-    if (params.wifi_enabled.x) {
+    if (param_i_get(cfg.network.wifi_enabled())) {
         // Populate once from whatever's already known, but don't start the
         // continuous refresh timer here - that used to rebuild the table
         // (and reset table-navigation state) every second even while just
@@ -215,7 +215,7 @@ static void construct_cb(lv_obj_t *parent) {
     lv_obj_set_style_border_opa(ap_table, 128, LV_PART_MAIN);
 
     lv_obj_set_style_border_width(ap_table, 0, LV_PART_ITEMS);
-    lv_obj_set_style_text_color(ap_table, lv_color_white(), LV_PART_ITEMS);
+    lv_obj_add_style(ap_table, &style.text_base_color, LV_PART_ITEMS);
     lv_obj_set_style_bg_color(ap_table, lv_color_white(), LV_PART_ITEMS | LV_STATE_EDITED);
     lv_obj_set_style_bg_opa(ap_table, LV_OPA_30, LV_PART_ITEMS | LV_STATE_EDITED);
     lv_obj_set_style_pad_top(ap_table, 3, LV_PART_ITEMS);
@@ -324,7 +324,7 @@ static void cell_selected_cb(lv_event_t *e) {
 static void wifi_bt_toggle_cb(button_data_t *btn_data) {
     if (disable_buttons)
         return;
-    if (params.wifi_enabled.x) {
+    if (param_i_get(cfg.network.wifi_enabled())) {
         stop_refresh_ap_list();
         wifi_power_off();
         // clear table
@@ -523,7 +523,7 @@ static void update_aps_table_cb(lv_timer_t *t) {
     // still running (see start_scan_cb) - stop as soon as it's done or
     // Wi-Fi got turned off, so the list holds still for browsing/selecting
     // the rest of the time instead of rebuilding every second.
-    if (!params.wifi_enabled.x || scan_just_finished) {
+    if (!param_i_get(cfg.network.wifi_enabled()) || scan_just_finished) {
         stop_refresh_ap_list();
     }
 

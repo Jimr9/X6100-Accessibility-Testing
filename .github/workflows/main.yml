@@ -4,7 +4,7 @@ on:
   push:
     # Pattern matched against refs/tags
     tags:
-      - '*'           # Push events to every tag not containing /
+      - '**'           # Push events to every tag
 
 jobs:
   build:
@@ -73,19 +73,14 @@ jobs:
         EOF
 
     # Ccache
-    - name: Prepare ccache timestamp
-      id: ccache_cache_timestamp
-      shell: cmake -P {0}
-      run: |
-        string(TIMESTAMP current_date "%Y-%m-%d-%H;%M;%S" UTC)
-        file(APPEND "$ENV{GITHUB_OUTPUT}" "timestamp=${current_date}")
-
     - name: Ccache cache files
       uses: actions/cache@v4
       with:
         path: ~/.buildroot-ccache
-        key: ${{ runner.os }}-ccache-${{ steps.ccache_cache_timestamp.outputs.timestamp }}
+        key: ${{ runner.os }}-ccache-${{ github.sha }}
         restore-keys: |
+          Linux-ccache-${{ github.sha }}
+          Linux-ccache-
           ${{ runner.os }}-ccache-
 
     # Configure
@@ -97,7 +92,8 @@ jobs:
     - name: Build
       run: |
         cd AetherX6100Buildroot/build
-        make lame mpg123
+        make lame
+        make mpg123
         make libsndfile-dirclean
         make
 

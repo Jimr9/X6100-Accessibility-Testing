@@ -9,6 +9,7 @@
 #include "voice.h"
 
 #include "util.h"
+#include "display.h"
 
 extern "C" {
 #include <unistd.h>
@@ -16,11 +17,12 @@ extern "C" {
 #include <aether_radio/x6100_control/control.h>
 
 #include "audio.h"
-#include "params/params.h"
-#include "backlight.h"
+#include "bt_audio.h"
 #include "recorder.h"
 #include "msg.h"
 }
+
+#include "cfg/cfg_api.h"
 
 #include <atomic>
 #include <memory>
@@ -39,7 +41,7 @@ using namespace RHVoice;
 
 class audio_player: public client {
 public:
-    audio_player();
+    explicit audio_player(const char *device);
 
     bool play_speech(const short* samples_buf, std::size_t count);
     void finish();
@@ -48,9 +50,14 @@ private:
     audio::playback_stream stream;
 };
 
-audio_player::audio_player() {
+/* device: a Bluetooth sink while listening is on (bt_audio.c), NULL for
+ * the default output. */
+audio_player::audio_player(const char *device) {
     stream.set_sample_rate(24000);
     stream.set_buffer_size(512);
+    if (device) {
+        stream.set_device(device);
+    }
     stream.open();
 }
 
@@ -122,18 +129,18 @@ static void * say_thread(void *arg) {
 
     run = true;
 
-    profile = eng->create_voice_profile(voice_item[params.voice_lang.x].name);
+    profile = eng->create_voice_profile(voice_item[cfg.voice.lang()->get()].name);
 
     char *ptr = buf;
 
     // voice_repeat_count == 0 means "always speak the full prompt", i.e.
     // never throttle - handled by simply not entering the throttle at all,
     // which leaves ptr at the full text below just like a fresh prompt does.
-    if (prompt_len > 0 && params.voice_repeat_count.x > 0) {
+    if (prompt_len > 0 && cfg.voice.repeat_count()->get() > 0) {
         if (strncmp(buf, prev, prompt_len) == 0) {
             repeated++;
 
-            if (repeated >= params.voice_repeat_count.x) {
+            if (repeated >= cfg.voice.repeat_count()->get()) {
                 repeated = 0;
             } else {
                 ptr = buf + prompt_len;
@@ -146,21 +153,35 @@ static void * say_thread(void *arg) {
     }
     strcpy(prev, buf);
 
-    audio_player                    player;
-    std::istringstream              text{ptr};
-    std::istreambuf_iterator<char>  text_start{text};
-    std::istreambuf_iterator<char>  text_end;
-    std::unique_ptr<document>       doc = document::create_from_plain_text(eng, text_start, text_end, content_text, profile);
+    /* Bluetooth listening: speak into the headphones, the radio's
+     * speaker is silent. */
+    char bt_sink[96];
+    bool bt = bt_audio_playback_begin(bt_sink, sizeof(bt_sink));
 
-    doc->speech_settings.relative.rate = params.voice_rate.x / 100.0;
-    doc->speech_settings.relative.pitch = params.voice_pitch.x / 100.0;
-    doc->speech_settings.relative.volume = params.voice_volume.x / 100.0;
-    doc->set_owner(player);
+    {
+        audio_player                    player(bt ? bt_sink : nullptr);
+        std::istringstream              text{ptr};
+        std::istreambuf_iterator<char>  text_start{text};
+        std::istreambuf_iterator<char>  text_end;
+        std::unique_ptr<document>       doc = document::create_from_plain_text(eng, text_start, text_end, content_text, profile);
 
-    audio_set_play_mode(AUDIO_PLAY_ON);
-    doc->synthesize();
-    player.finish();
-    audio_set_play_mode(AUDIO_PLAY_OFF);
+        doc->speech_settings.relative.rate = cfg.voice.rate()->get() / 100.0;
+        doc->speech_settings.relative.pitch = cfg.voice.pitch()->get() / 100.0;
+        doc->speech_settings.relative.volume = cfg.voice.volume()->get() / 100.0;
+        doc->set_owner(player);
+
+        if (!bt) {
+            audio_set_play_mode(AUDIO_PLAY_ON);
+        }
+        doc->synthesize();
+        player.finish();
+        if (!bt) {
+            audio_set_play_mode(AUDIO_PLAY_OFF);
+        }
+    }
+    if (bt) {
+        bt_audio_playback_end();
+    }
 
     run = false;
     sure = false;
@@ -192,21 +213,21 @@ void voice_wait_done() {
 void voice_change_mode() {
     voice_sure();
 
-    switch (params.voice_mode.x) {
+    switch (cfg.voice.mode()->get()) {
         case VOICE_OFF:
-            params_uint8_set(&params.voice_mode, VOICE_LCD);
+            cfg.voice.mode()->set(VOICE_LCD);
             msg_update_text_fmt("Voice mode: LCD");
             voice_say_text("Voice mode", "is LCD");
             break;
 
         case VOICE_LCD:
-            params_uint8_set(&params.voice_mode, VOICE_ALWAYS);
+            cfg.voice.mode()->set(VOICE_ALWAYS);
             msg_update_text_fmt("Voice mode: Always");
             voice_say_text("Voice mode", "is always");
             break;
 
         case VOICE_ALWAYS:
-            params_uint8_set(&params.voice_mode, VOICE_OFF);
+            cfg.voice.mode()->set(VOICE_OFF);
             msg_update_text_fmt("Voice mode: Off");
             voice_say_text("Voice mode", "is off");
             break;
@@ -223,7 +244,7 @@ bool voice_enable() {
     if (sure) {
         allowed = true;
     } else {
-        switch (params.voice_mode.x) {
+        switch (cfg.voice.mode()->get()) {
             case VOICE_OFF:
                 return false;
 
@@ -232,7 +253,7 @@ bool voice_enable() {
                 break;
 
             case VOICE_LCD:
-                allowed = !backlight_is_on();
+                allowed = !display_is_on();
                 break;
 
             default:
@@ -249,7 +270,7 @@ bool voice_enable() {
     // here and the caller (see voice_stop_current()) cuts the old one
     // off cooperatively so the newest announcement is always heard,
     // screen-reader style.
-    if (run && !params.voice_interrupt.x) {
+    if (run && !cfg.voice.interrupt()->get()) {
         return false;
     }
 
@@ -283,10 +304,10 @@ static void voice_stop_current() {
 // be tuned live instead of guessed at - 0 is closest to instant, 1000
 // reproduces the original always-1-second wait.
 static uint32_t voice_debounce_delay() {
-    if (!params.voice_interrupt.x) {
+    if (!cfg.voice.interrupt()->get()) {
         return 1000000;
     }
-    return (uint32_t)params.voice_interrupt_delay_ms.x * 1000;
+    return (uint32_t)cfg.voice.interrupt_delay_ms()->get() * 1000;
 }
 
 // Frequency tuning gets its own delay, separate from voice_debounce_delay()
@@ -297,10 +318,10 @@ static uint32_t voice_debounce_delay() {
 // cancels it, which is audible as chatter rather than one clean announcement
 // once you settle on a frequency.
 static uint32_t voice_freq_debounce_delay() {
-    if (!params.voice_interrupt.x) {
+    if (!cfg.voice.interrupt()->get()) {
         return 1000000;
     }
-    return (uint32_t)params.voice_freq_interrupt_delay_ms.x * 1000;
+    return (uint32_t)cfg.voice.freq_interrupt_delay_ms()->get() * 1000;
 }
 
 void voice_delay_say_text_fmt(const char * fmt, ...) {
@@ -473,5 +494,5 @@ void voice_say_text(const char *prompt, const char *x) {
 }
 
 void voice_say_lang() {
-    voice_delay_say_text_fmt(voice_item[params.voice_lang.x].welcome);
+    voice_delay_say_text_fmt(voice_item[cfg.voice.lang()->get()].welcome);
 }

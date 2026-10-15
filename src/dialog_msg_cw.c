@@ -11,19 +11,23 @@
 #include <unistd.h>
 #include <math.h>
 
+#include "radio.h"
 #include "dialog.h"
 #include "dialog_msg_cw.h"
 #include "styles.h"
-#include "params/params.h"
+#include "cfg/cfg_api.h"
 #include "events.h"
 #include "util.h"
 #include "panel.h"
 #include "keyboard.h"
 #include "textarea_window.h"
+#include "msg_cw_store.h"
 #include "cw_encoder.h"
 #include "msg.h"
 #include "buttons.h"
 #include "main_screen.h"
+#include "lock_manager.h"
+#include "pubsub_ids.h"
 #include "voice.h"
 
 static uint32_t         *ids = NULL;
@@ -144,7 +148,6 @@ static dialog_t             dialog = {
     .construct_cb = construct_cb,
     .destruct_cb = destruct_cb,
     .btn_page = &buttons_page_msg_cw_1,
-    .audio_cb = NULL,
     .key_cb = NULL
 };
 
@@ -158,7 +161,7 @@ static void reset() {
     lv_table_set_row_cnt(table, 1);
 }
 
-static void tx_cb(lv_event_t * e) {
+static void tx_cb(void * s, lv_msg_t * msg) {
     if (cw_encoder_state() == CW_ENCODER_BEACON_IDLE) {
         cw_encoder_stop();
         buttons_unload_page();
@@ -174,7 +177,7 @@ static void construct_cb(lv_obj_t *parent) {
     buttons_page_msg_cw_2.items[0]->next = &buttons_page_msg_cw_1;
     buttons_page_msg_cw_2.items[0]->prev = &buttons_page_msg_cw_1;
 
-    lv_obj_add_event_cb(dialog.obj, tx_cb, EVENT_RADIO_TX, NULL);
+    lv_msg_subscribe(MSG_RADIO_TX, tx_cb, NULL);
 
     table = lv_table_create(dialog.obj);
 
@@ -188,7 +191,7 @@ static void construct_cb(lv_obj_t *parent) {
     lv_obj_set_style_border_width(table, 0, LV_PART_ITEMS);
 
     lv_obj_set_style_bg_opa(table, LV_OPA_TRANSP, LV_PART_ITEMS);
-    lv_obj_set_style_text_color(table, lv_color_white(), LV_PART_ITEMS);
+    lv_obj_add_style(table, &style.text_base_color, LV_PART_ITEMS);
     lv_obj_set_style_pad_top(table, 5, LV_PART_ITEMS);
     lv_obj_set_style_pad_bottom(table, 5, LV_PART_ITEMS);
     lv_obj_set_style_pad_left(table, 0, LV_PART_ITEMS);
@@ -209,7 +212,7 @@ static void construct_cb(lv_obj_t *parent) {
     ids = NULL;
     last_spoken_row = LV_TABLE_CELL_NONE;
 
-    params_msg_cw_load();
+    msg_cw_store_load(dialog_msg_cw_append);
 
     // Unlike the directory-listing-based message dialogs, dialog_msg_cw_append()
     // never runs at all when there are zero saved messages, so the table is
@@ -220,7 +223,7 @@ static void construct_cb(lv_obj_t *parent) {
         lv_table_set_cell_value(table, 0, 0, "");
         lv_table_set_row_cnt(table, 1);
     }
-    main_screen_lock_mode(true);
+    lm_set_mode(true);
 }
 
 static void destruct_cb() {
@@ -231,7 +234,7 @@ static void destruct_cb() {
     state = MSG_CW_OFF;
     cw_encoder_stop();
     textarea_window_close();
-    main_screen_lock_mode(false);
+    lm_set_mode(false);
 }
 
 static void key_cb(lv_event_t * e) {
@@ -309,7 +312,9 @@ static bool textarea_window_close_cb() {
 
 static bool textarea_window_new_ok_cb() {
     const char *val = textarea_window_get();
-    params_msg_cw_new(val);
+    uint32_t    id  = msg_cw_store_new(val);
+
+    dialog_msg_cw_append(id, val);
     voice_say_text_fmt("Message added, %s", val);
     return textarea_window_close_cb();
 }
@@ -321,7 +326,7 @@ static bool textarea_window_edit_ok_cb() {
 
     lv_table_get_selected_cell(table, &row, &col);
     lv_table_set_cell_value(table, row, col, val);
-    params_msg_cw_edit(ids[row], val);
+    msg_cw_store_edit(ids[row], val);
     voice_say_text_fmt("Message updated, %s", val);
     return textarea_window_close_cb();
 }
@@ -375,7 +380,7 @@ void dialog_msg_cw_send_cb(button_data_t *btn_data) {
         return;
     }
 
-    if (params.voice_mode.x == VOICE_OFF) {
+    if (param_i_get(cfg.voice.mode()) == VOICE_OFF) {
         start_sending(msg);
     } else {
         voice_say_text_fmt("Ready to send %s, press again to start", msg);
@@ -412,7 +417,7 @@ void dialog_msg_cw_beacon_cb(button_data_t *btn_data) {
         return;
     }
 
-    if (params.voice_mode.x == VOICE_OFF) {
+    if (param_i_get(cfg.voice.mode()) == VOICE_OFF) {
         start_beacon(msg);
     } else {
         voice_say_text_fmt("Ready to beacon %s, press again to start", msg);
@@ -428,29 +433,19 @@ static void beacon_stop_cb(button_data_t *btn_data) {
 }
 
 void dialog_msg_cw_period_cb(button_data_t *btn_data) {
-    params_lock();
+    int32_t period;
 
-    switch (params.cw_encoder_period) {
-        case 10:
-            params.cw_encoder_period = 30;
-            break;
-
-        case 30:
-            params.cw_encoder_period = 60;
-            break;
-
-        case 60:
-            params.cw_encoder_period = 120;
-            break;
-
-        case 120:
-            params.cw_encoder_period = 10;
-            break;
+    switch (param_i_get(cfg.cw.encoder_period())) {
+        case 10:  period = 30;  break;
+        case 30:  period = 60;  break;
+        case 60:  period = 120; break;
+        case 120: period = 10;  break;
+        default:  period = 10;  break;
     }
 
-    params_unlock(&params.dirty.cw_encoder_period);
-    msg_update_text_fmt("Beacon period: %i s", params.cw_encoder_period);
-    voice_say_text_fmt("Beacon period %i seconds", params.cw_encoder_period);
+    param_i_set(cfg.cw.encoder_period(), period);
+    msg_update_text_fmt("Beacon period: %i s", param_i_get(cfg.cw.encoder_period()));
+    voice_say_text_fmt("Beacon period %i seconds", param_i_get(cfg.cw.encoder_period()));
 }
 
 void dialog_msg_cw_new_cb(button_data_t *btn_data) {
@@ -487,11 +482,11 @@ void dialog_msg_cw_delete_cb(button_data_t *btn_data) {
         char deleted[64];
         const char *val = lv_table_get_cell_value(table, row, col);
         strncpy(deleted, val ? val : "", sizeof(deleted) - 1);
-        deleted[sizeof(deleted) - 1] = '\0';
+        deleted[sizeof(deleted) - 1] = ' ';
 
-        params_msg_cw_delete(ids[row]);
+        msg_cw_store_delete(ids[row]);
         reset();
-        params_msg_cw_load();
+        msg_cw_store_load(dialog_msg_cw_append);
         voice_say_text_fmt("Deleted %s", deleted);
     } else {
         voice_say_text_fmt("No message selected");

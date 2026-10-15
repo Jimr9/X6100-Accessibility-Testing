@@ -12,18 +12,20 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <math.h>
 #include <sndfile.h>
 #include <dirent.h>
 #include <pthread.h>
 
 #include <aether_radio/x6100_control/control.h>
 
+#include "radio.h"
 #include "audio.h"
+#include "bt_audio.h"
 #include "dialog.h"
 #include "dialog_msg_voice.h"
+#include "dsp.h"
 #include "styles.h"
-#include "params/params.h"
+#include "cfg/cfg_api.h"
 #include "events.h"
 #include "util.h"
 #include "panel.h"
@@ -43,6 +45,7 @@ typedef enum {
 } voice_beacon_t;
 
 static msg_voice_state_t    state = MSG_VOICE_OFF;
+static uint32_t             dsp_audio_sub_id = AUDIO_SUB_INVALID;
 static voice_beacon_t       beacon = VOICE_BEACON_OFF;
 static char                 *path = "/mnt/msg";
 
@@ -177,7 +180,6 @@ static dialog_t             dialog = {
     .construct_cb = construct_cb,
     .destruct_cb = destruct_cb,
     .btn_page = &page_msg_voice_1,
-    .audio_cb = NULL,
     .key_cb = NULL
 };
 
@@ -241,7 +243,10 @@ static bool create_file() {
 }
 
 static void close_file() {
-    sf_close(file);
+    if (file) {
+        sf_close(file);
+        file = NULL;
+    }
 }
 
 static const char* get_item() {
@@ -261,7 +266,9 @@ static const char* get_item() {
     return lv_table_get_cell_value(table, row, col);
 }
 
-static void play_item() {
+/* bt_sink: play the preview on the Bluetooth headphones (listening on),
+ * NULL for the codec - always NULL when transmitting. */
+static void play_item(const char *bt_sink) {
     const char *item = get_item();
 
     if (!item) {
@@ -283,29 +290,46 @@ static void play_item() {
     if (!file) {
         return;
     }
+    audio_player_t *player = NULL;
+
+    if (bt_sink) {
+        player = audio_create_player_on(bt_sink, sfinfo.samplerate, sfinfo.channels);
+    }
+    if (!player) {
+        player = audio_get_player(sfinfo.samplerate, sfinfo.channels);
+    }
 
     state = MSG_VOICE_PLAY;
     while (state == MSG_VOICE_PLAY) {
         int res = sf_read_short(file, samples_buf, BUF_SIZE);
 
         if (res > 0) {
-            audio_play(samples_buf, res);
+            audio_player_send(player, samples_buf, res);
         } else {
             state = MSG_VOICE_OFF;
         }
     }
 
     sf_close(file);
-    audio_play_wait();
+    audio_player_wait(player);
+    audio_player_release(player);
 }
 
 static void * play_thread(void *arg) {
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 
-    audio_set_play_mode(AUDIO_PLAY_ON);
-    play_item();
-    audio_set_play_mode(AUDIO_PLAY_OFF);
+    char bt_sink[96];
+    bool bt = bt_audio_playback_begin(bt_sink, sizeof(bt_sink));
+
+    if (bt) {
+        play_item(bt_sink);
+        bt_audio_playback_end();
+    } else {
+        audio_set_play_mode(AUDIO_PLAY_ON);
+        play_item(NULL);
+        audio_set_play_mode(AUDIO_PLAY_OFF);
+    }
 
     void *page_ptr = &page_msg_voice_2;
     scheduler_put(refresh_buttons_on_done, &page_ptr, sizeof(&page_ptr));
@@ -318,7 +342,7 @@ static void * send_thread(void *arg) {
     msg_update_text_fmt("Sending message");
 
     radio_set_modem(true);
-    play_item();
+    play_item(NULL);
     radio_set_modem(false);
 
     void *page_ptr = &page_msg_voice_1;
@@ -339,13 +363,13 @@ static void * beacon_thread(void *arg) {
             case VOICE_BEACON_PLAY:
                 msg_update_text_fmt("Sending message");
                 radio_set_modem(true);
-                play_item();
+                play_item(NULL);
                 radio_set_modem(false);
                 break;
 
             case VOICE_BEACON_IDLE:
-                msg_update_text_fmt("Beacon pause: %i s", params.voice_msg_period);
-                sleep(params.voice_msg_period);
+                msg_update_text_fmt("Beacon pause: %i s", param_i_get(cfg.voice.msg_period()));
+                sleep(param_i_get(cfg.voice.msg_period()));
                 break;
         }
 
@@ -395,7 +419,7 @@ static bool textarea_window_edit_ok_cb() {
     return true;
 }
 
-static void tx_cb(lv_event_t * e) {
+static void tx_cb(void * s, lv_msg_t * msg) {
     if (beacon == VOICE_BEACON_IDLE) {
         pthread_cancel(thread);
         pthread_join(thread, NULL);
@@ -414,7 +438,7 @@ static void construct_cb(lv_obj_t *parent) {
     page_msg_voice_2.items[0]->next = &page_msg_voice_1;
     page_msg_voice_2.items[0]->prev = &page_msg_voice_1;
 
-    lv_obj_add_event_cb(dialog.obj, tx_cb, EVENT_RADIO_TX, NULL);
+    lv_msg_subscribe(MSG_RADIO_TX, tx_cb, NULL);
 
     table = lv_table_create(dialog.obj);
 
@@ -428,7 +452,7 @@ static void construct_cb(lv_obj_t *parent) {
     lv_obj_set_style_border_width(table, 0, LV_PART_ITEMS);
 
     lv_obj_set_style_bg_opa(table, LV_OPA_TRANSP, LV_PART_ITEMS);
-    lv_obj_set_style_text_color(table, lv_color_white(), LV_PART_ITEMS);
+    lv_obj_add_style(table, &style.text_base_color, LV_PART_ITEMS);
     lv_obj_set_style_pad_top(table, 5, LV_PART_ITEMS);
     lv_obj_set_style_pad_bottom(table, 5, LV_PART_ITEMS);
     lv_obj_set_style_pad_left(table, 0, LV_PART_ITEMS);
@@ -452,12 +476,19 @@ static void construct_cb(lv_obj_t *parent) {
 
 static void destruct_cb() {
     audio_set_play_mode(AUDIO_PLAY_OFF);
+    bt_audio_playback_end();
 
     if (beacon == VOICE_BEACON_IDLE) {
         pthread_cancel(thread);
         pthread_join(thread, NULL);
     }
 
+    if (state == MSG_VOICE_RECORD) {
+        dsp_audio_set_active(dsp_audio_sub_id, false);
+        close_file();
+    }
+
+    meter_set_mode(METER_MODE_S);
     beacon = VOICE_BEACON_OFF;
     state = MSG_VOICE_OFF;
     textarea_window_close();
@@ -546,7 +577,7 @@ void dialog_msg_voice_send_cb(button_data_t *btn_data) {
             voice_say_text_fmt("No message selected");
             return;
         }
-        if (params.voice_mode.x == VOICE_OFF) {
+        if (param_i_get(cfg.voice.mode()) == VOICE_OFF) {
             start_sending();
         } else {
             voice_say_text_fmt("Ready to send %s, press again to start", name);
@@ -580,7 +611,7 @@ void dialog_msg_voice_beacon_cb(button_data_t *btn_data) {
             voice_say_text_fmt("No message selected");
             return;
         }
-        if (params.voice_mode.x == VOICE_OFF) {
+        if (param_i_get(cfg.voice.mode()) == VOICE_OFF) {
             start_beacon();
         } else {
             voice_say_text_fmt("Ready to beacon %s, press again to start", name);
@@ -614,29 +645,19 @@ static void beacon_stop_cb(button_data_t *btn_data) {
 }
 
 void dialog_msg_voice_period_cb(button_data_t *btn_data) {
-    params_lock();
+    int32_t period;
 
-    switch (params.voice_msg_period) {
-        case 10:
-            params.voice_msg_period = 30;
-            break;
-
-        case 30:
-            params.voice_msg_period = 60;
-            break;
-
-        case 60:
-            params.voice_msg_period = 120;
-            break;
-
-        case 120:
-            params.voice_msg_period = 10;
-            break;
+    switch (param_i_get(cfg.voice.msg_period())) {
+        case 10:  period = 30;  break;
+        case 30:  period = 60;  break;
+        case 60:  period = 120; break;
+        case 120: period = 10;  break;
+        default:  period = 10;  break;
     }
 
-    params_unlock(&params.dirty.voice_msg_period);
-    msg_update_text_fmt("Beacon period: %i s", params.voice_msg_period);
-    voice_say_text_fmt("Beacon period %i seconds", params.voice_msg_period);
+    param_i_set(cfg.voice.msg_period(), period);
+    msg_update_text_fmt("Beacon period: %i s", param_i_get(cfg.voice.msg_period()));
+    voice_say_text_fmt("Beacon period %i seconds", param_i_get(cfg.voice.msg_period()));
 }
 
 // Actually opens the file and starts capture. No announcement here - by the
@@ -650,6 +671,12 @@ static void start_recording() {
         audio_set_play_mode(AUDIO_PLAY_VOICE_REC);
         state = MSG_VOICE_RECORD;
 
+        if (dsp_audio_sub_id == AUDIO_SUB_INVALID) {
+            dsp_audio_sub_id = dsp_audio_subscribe_raw(dialog_msg_voice_put_audio_samples, true);
+        }
+        dsp_audio_set_active(dsp_audio_sub_id, true);
+        meter_set_mode(METER_MODE_LEVEL);
+
         buttons_unload_page();
         buttons_load(1, &btn_rec_stop);
     } else {
@@ -660,7 +687,7 @@ static void start_recording() {
 
 void dialog_msg_voice_rec_cb(button_data_t *btn_data) {
     if (state == MSG_VOICE_OFF) {
-        if (params.voice_mode.x == VOICE_OFF) {
+        if (param_i_get(cfg.voice.mode()) == VOICE_OFF) {
             // Nothing will ever be spoken, so there's nothing to guard
             // against - start immediately like this always has.
             start_recording();
@@ -683,7 +710,9 @@ static void rec_stop_cb(button_data_t *btn_data) {
     buttons_unload_page();
     buttons_load_page_quiet(&page_msg_voice_2);
 
+    dsp_audio_set_active(dsp_audio_sub_id, false);
     audio_set_play_mode(AUDIO_PLAY_OFF);
+    meter_set_mode(METER_MODE_S);
     state = MSG_VOICE_OFF;
     close_file();
     load_table();
@@ -711,7 +740,7 @@ void dialog_msg_voice_play_cb(button_data_t *btn_data) {
             voice_say_text_fmt("No message selected");
             return;
         }
-        if (params.voice_mode.x == VOICE_OFF) {
+        if (param_i_get(cfg.voice.mode()) == VOICE_OFF) {
             start_playing();
         } else {
             voice_say_text_fmt("Ready to play %s, press again to start", name);
@@ -770,18 +799,6 @@ msg_voice_state_t dialog_msg_voice_get_state() {
 }
 
 void dialog_msg_voice_put_audio_samples(size_t nsamples, int16_t *samples) {
-    int16_t peak = 0;
-
-    for (uint16_t i = 0; i < nsamples; i++) {
-        int16_t x = abs(samples[i]);
-
-        if (x > peak) {
-            peak = x;
-        }
-    }
-
-    peak = S1 + (peak / 32768.0) * (S9_40 - S1);
-    meter_update(peak, 0.25f);
     sf_write_short(file, samples, nsamples);
 }
 

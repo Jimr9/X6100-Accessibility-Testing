@@ -24,7 +24,18 @@ static lv_obj_t             *keyboard = NULL;
 static textarea_window_cb_t ok_cb = NULL;
 static textarea_window_cb_t cancel_cb = NULL;
 
+/* The key that closes the window is usually still held. Closing deletes
+ * the focused object, which resets LVGL's keypad state with a press time
+ * of 0 (boot), so the held key counts as a long press and repeats into
+ * whatever has the focus next: one ESC here closed the whole app. Ignore
+ * that key until it's released. */
+static void swallow_key() {
+    lv_indev_t *indev = lv_indev_get_act();
+    if (indev) lv_indev_wait_release(indev);
+}
+
 static void ok() {
+    swallow_key();
     if (ok_cb) {
         if(ok_cb()) {
             ok_cb = NULL;
@@ -34,6 +45,7 @@ static void ok() {
  }
 
 static void cancel() {
+    swallow_key();
     if (cancel_cb) {
         cancel_cb();
         cancel_cb = NULL;
@@ -288,7 +300,7 @@ lv_obj_t * textarea_window_open(textarea_window_cb_t ok, textarea_window_cb_t ca
 
     lv_obj_remove_style_all(window);
 
-    lv_obj_add_style(window, &msg_style, 0);
+    lv_obj_add_style(window, &style.msg, 0);
     lv_obj_clear_flag(window, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_y(window, 80);
 
@@ -315,7 +327,7 @@ lv_obj_t * textarea_window_open(textarea_window_cb_t ok, textarea_window_cb_t ca
     lv_obj_remove_style(text, NULL, LV_STATE_ANY | LV_PART_MAIN);
     lv_obj_set_size(text, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
 
-    lv_obj_set_style_text_color(text, lv_color_white(), 0);
+    lv_obj_add_style(text, &style.text_base_color, LV_PART_MAIN);
     lv_obj_set_style_bg_color(text, lv_color_white(), LV_PART_CURSOR);
     lv_obj_set_style_bg_opa(text, LV_OPA_80, LV_PART_CURSOR);
 
@@ -353,8 +365,8 @@ lv_obj_t * textarea_window_open(textarea_window_cb_t ok, textarea_window_cb_t ca
         lv_obj_add_event_cb(keyboard, keyboard_nav_voice_cb, LV_EVENT_KEY, NULL);
         lv_obj_add_event_cb(keyboard, keyboard_char_voice_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-        lv_obj_set_style_bg_color(keyboard, bg_color, LV_PART_MAIN);
-        lv_obj_add_style(keyboard, &dialog_item_focus_style, LV_STATE_FOCUSED | LV_PART_ITEMS);
+        lv_obj_set_style_bg_color(keyboard, style.colors.mark, LV_PART_MAIN);
+        lv_obj_add_style(keyboard, &style.dialog.item_focus, LV_STATE_FOCUSED | LV_PART_ITEMS);
 
         lv_group_add_obj(keyboard_group, keyboard);
     } else {
