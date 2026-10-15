@@ -482,7 +482,7 @@ void dialog_msg_cw_delete_cb(button_data_t *btn_data) {
         char deleted[64];
         const char *val = lv_table_get_cell_value(table, row, col);
         strncpy(deleted, val ? val : "", sizeof(deleted) - 1);
-        deleted[sizeof(deleted) - 1] = ' ';
+        deleted[sizeof(deleted) - 1] = '\0';
 
         msg_cw_store_delete(ids[row]);
         reset();
