@@ -269,9 +269,9 @@ void dialog_item_voice(dialog_t *dialog, lv_obj_t *obj, const char *name) {
     lv_obj_add_event_cb(obj, dropdown_scroll_voice_cb, LV_EVENT_KEY, (void *)name);
 }
 
-void dialog_rotary(int32_t diff) {
+void dialog_rotary(int32_t diff, uint16_t dt) {
     if (dialog_is_running() && current_dialog->rotary_cb) {
-        current_dialog->rotary_cb(diff);
+        current_dialog->rotary_cb(diff, dt);
     }
 }
 

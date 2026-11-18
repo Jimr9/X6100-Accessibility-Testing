@@ -35,6 +35,7 @@
 #include "meter.h"
 #include "voice.h"
 #include "scheduler.h"
+#include "diag_log.h"
 
 #define BUF_SIZE 1024
 
@@ -336,6 +337,7 @@ static void * play_thread(void *arg) {
 }
 
 static void * send_thread(void *arg) {
+    diag_set_source("voice message");
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 
@@ -350,6 +352,7 @@ static void * send_thread(void *arg) {
 }
 
 static void * beacon_thread(void *arg) {
+    diag_set_source("voice beacon");
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 
