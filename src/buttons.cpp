@@ -659,6 +659,47 @@ void buttons_load(uint8_t n, button_data_t *data) {
     }
 }
 
+/* The button's text as shown now: a BTN_TEXT_FN asks its function, a
+ * BTN_TEXT on screen reads its label (an app may change it there). */
+static const char *button_text(button_data_t *data) {
+    if (data->type == BTN_TEXT_FN && data->label_fn) {
+        return data->label_fn();
+    }
+    if (data->disp_btn && data->disp_btn->data == data && data->disp_btn->label) {
+        return lv_label_get_text(data->disp_btn->label);
+    }
+    return data->type == BTN_TEXT ? data->label : NULL;
+}
+
+/* Pages of the newer windows have no spoken name, only a label like
+ * "(JS8 1:6)" on their first button: say that as "JS8 page 1". Any other
+ * first button (Close, say) is not a page name - say nothing, as before. */
+static void say_page_from_label(button_data_t *first) {
+    const char *label = button_text(first);
+    char        text[48];
+
+    if (!label || label[0] != '(') {
+        return;
+    }
+    snprintf(text, sizeof(text), "%s", label + 1);
+
+    char *close = strrchr(text, ')');
+    char *space = strrchr(text, ' ');
+    int   page = 0;
+    int   pages = 0;
+
+    if (!close || !space || space > close || sscanf(space + 1, "%d:%d", &page, &pages) != 2) {
+        return;
+    }
+    *space = '\0';
+    for (char *c = text; *c; c++) {
+        if (*c == '\n') {
+            *c = ' ';
+        }
+    }
+    voice_say_text_fmt("%s page %d", text, page);
+}
+
 static void buttons_load_page_impl(buttons_page_t *page, bool announce) {
     if (!page) {
         LV_LOG_ERROR("NULL pointer to buttons page");
@@ -672,8 +713,12 @@ static void buttons_load_page_impl(buttons_page_t *page, bool announce) {
     for (uint8_t i = 0; i < BUTTONS; i++) {
         buttons_load(i, page->items[i]);
     }
-    if (announce && page->items[0]->voice) {
-        voice_say_text_fmt("%s", page->items[0]->voice);
+    if (announce && page->items[0]) {
+        if (page->items[0]->voice) {
+            voice_say_text_fmt("%s", page->items[0]->voice);
+        } else {
+            say_page_from_label(page->items[0]);
+        }
     }
 }
 
@@ -802,20 +847,40 @@ void buttons_press(uint8_t n, bool hold) {
     }
     if (btn_data->disabled) {
         LV_LOG_USER("Button %s disabled", lv_label_get_text(btn_data->disp_btn->label));
+        if (voice_auto_active()) {
+            char text[96];
+
+            snprintf(text, sizeof(text), "%s, unavailable", button_text(btn_data) ?: "Button");
+            voice_say_clean(text, false);
+        }
         return;
     }
+
+    uint32_t said = voice_say_count();
+    bool     acted = false;
+
     if (hold) {
         if (btn_data->hold) {
             btn_data->hold(btn_data);
+            acted = true;
         } else {
             LV_LOG_USER("Button %u hold action is NULL", n);
         }
     } else {
         if (btn_data->press) {
             btn_data->press(btn_data);
+            acted = true;
         } else {
             LV_LOG_USER("Button %u press action is NULL", n);
         }
+    }
+
+    // In the JS8, WeFax and SSTV windows most buttons say nothing when
+    // pressed. If this one didn't (and showed no pop-up message, which
+    // msg.c speaks), say its label as it now reads - for a toggle that is
+    // the new state, e.g. "RX Mode Autodetect".
+    if (acted && voice_auto_active() && voice_say_count() == said) {
+        voice_say_clean(button_text(btn_data), false);
     }
 }
 

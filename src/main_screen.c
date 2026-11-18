@@ -185,7 +185,8 @@ void main_screen_start_app(press_action_t app_action) {
 
     switch (app_action) {
         case ACTION_APP_RTTY:
-            buttons_load_page(&buttons_page_rtty);
+            /* Quiet: "Teletype window" below is the announcement. */
+            buttons_load_page_quiet(&buttons_page_rtty);
             rtty_set_state(RTTY_RX);
             panel_update_visibility(true);
             voice_say_text_fmt("Teletype window");
@@ -235,6 +236,7 @@ void main_screen_start_app(press_action_t app_action) {
         case ACTION_APP_JS8:
             dialog_construct(dialog_js8, obj);
             voice_say_text_fmt("JS8 window");
+            voice_auto_set(true);   /* after its name: see voice.h */
             break;
 
         /* PSK31 */
@@ -243,12 +245,14 @@ void main_screen_start_app(press_action_t app_action) {
         case ACTION_APP_WEFAX:
             dialog_construct(dialog_wefax, obj);
             voice_say_text_fmt("WeFax window");
+            voice_auto_set(true);
             break;
 
         /* SSTV */
         case ACTION_APP_SSTV:
             dialog_construct(dialog_sstv, obj);
             voice_say_text_fmt("SSTV window");
+            voice_auto_set(true);
             break;
 
         default:

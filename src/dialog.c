@@ -42,7 +42,18 @@ void dialog_construct(dialog_t *dialog, lv_obj_t *parent) {
         dialog->prev_page = buttons_get_cur_page();
         buttons_unload_page();
         if (dialog->btn_page) {
-            buttons_load_page(dialog->btn_page);
+            // A first page with a real spoken name (FT8, messages...)
+            // announces itself as before. One with only a "(JS8 1:6)"
+            // label loads quietly: the window's own name, spoken by the
+            // caller right after, is the announcement - the page's
+            // label-derived name would race it (buttons.cpp).
+            button_data_t *first = dialog->btn_page->items[0];
+
+            if (first && first->voice) {
+                buttons_load_page(dialog->btn_page);
+            } else {
+                buttons_load_page_quiet(dialog->btn_page);
+            }
         }
         dialog->construct_cb(parent);
 
@@ -55,6 +66,7 @@ void dialog_construct(dialog_t *dialog, lv_obj_t *parent) {
 static void dialog_destruct_impl(bool restore_page, bool announce) {
     if (current_dialog && current_dialog->run) {
         current_dialog->run = false;
+        voice_auto_set(false);  /* the app speech helper is per window */
 
         if (current_dialog->destruct_cb) {
             current_dialog->destruct_cb();

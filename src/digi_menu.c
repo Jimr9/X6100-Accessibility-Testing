@@ -14,6 +14,7 @@
 #include "cfg/cfg_api.h"
 #include "keyboard.h"
 #include "styles.h"
+#include "voice.h"
 
 /* Sized by the "Decoder text" setting, as the received text is:
  * Compact keeps the window behind in view, Large reads at arm's length. */
@@ -29,6 +30,43 @@ static bool            prev_editing;
 static digi_menu_cb_t  pick_cb;
 static void           *pick_ctx;
 static int             nitems;
+static char            title_text[96];
+static lv_timer_t     *intro_timer;     /* the opening announcement, pending */
+
+/* Speech: "<title>. <item>, 2 of 3" on opening, "<item>, 2 of 3" while
+ * moving. The opening one waits for the next LVGL pass, so a caller that
+ * moves the cursor right after opening (the callsign window puts it on the
+ * saved suffix) is heard on its final item, once. */
+static void say_current(bool with_title) {
+    uint16_t row;
+    uint16_t col;
+    char     text[200];
+
+    if (list == NULL) {
+        return;
+    }
+    lv_table_get_selected_cell(list, &row, &col);
+    if (row == LV_TABLE_CELL_NONE || row >= nitems) {
+        row = 0;
+    }
+
+    const char *item = lv_table_get_cell_value(list, row, 0);
+
+    if (nitems > 1) {
+        snprintf(text, sizeof(text), "%s%s%s, %d of %d", with_title ? title_text : "", with_title ? ". " : "",
+                 item ? item : "", row + 1, nitems);
+    } else {
+        snprintf(text, sizeof(text), "%s%s%s", with_title ? title_text : "", with_title ? ". " : "",
+                 item ? item : "");
+    }
+    voice_say_clean(text, !with_title);
+}
+
+static void intro_cb(lv_timer_t *t) {
+    (void)t;
+    intro_timer = NULL;
+    say_current(true);
+}
 
 static void restore_focus(void)
 {
@@ -52,6 +90,10 @@ void digi_menu_close(void)
      * (VOL press = ESC) leaves LVGL's keypad about to send CANCEL to the
      * list, and lv_obj_del only stops that for an object in the indev's
      * group. Out of the group first, CANCEL went to freed memory. */
+    if (intro_timer != NULL) {
+        lv_timer_del(intro_timer);
+        intro_timer = NULL;
+    }
     lv_obj_del(box);
     box = NULL;
     list = NULL;
@@ -84,6 +126,16 @@ static void key_cb(lv_event_t *e)
         case LV_KEY_ESC:
             digi_menu_close();
             break;
+
+        case LV_KEY_LEFT:
+        case LV_KEY_RIGHT:
+        case LV_KEY_UP:
+        case LV_KEY_DOWN:
+            /* One item: the selection never changes, say it anyway. */
+            if (nitems <= 1) {
+                say_current(false);
+            }
+            break;
     }
 }
 
@@ -96,6 +148,9 @@ static void changed_cb(lv_event_t *e)
     lv_coord_t  top = lv_obj_get_scroll_y(list);
 
     (void)e;
+    if (intro_timer == NULL) {
+        say_current(false);
+    }
     for (uint16_t r = 0; r < t->row_act && r < t->row_cnt; r++) {
         y += t->row_h[r];
     }
@@ -222,4 +277,8 @@ void digi_menu_open(lv_obj_t *parent, const char *title, const char *const *item
     lv_group_add_obj(keyboard_group, list);
     lv_group_focus_obj(list);
     lv_group_set_editing(keyboard_group, true);
+
+    snprintf(title_text, sizeof(title_text), "%s", title ? title : "");
+    intro_timer = lv_timer_create(intro_cb, 0, NULL);
+    lv_timer_set_repeat_count(intro_timer, 1);
 }

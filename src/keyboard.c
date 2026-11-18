@@ -13,6 +13,7 @@
 
 #include "kbd_rollover.h"
 #include "voice.h"
+#include "voice_focus.h"
 #include "lv_drivers/indev/evdev.h"
 #include "lv_drivers/indev/xkb.h"
 
@@ -190,6 +191,7 @@ static void on_device_change(void * s, lv_msg_t * msg) {
 
 void keyboard_init() {
     keyboard_group = lv_group_create();
+    voice_focus_init(keyboard_group);
 
     lv_msg_subscribe(MSG_USB_DEVICE_CHANGED, on_device_change, NULL);
     lv_msg_subscribe(MSG_INPUT_DEVICE_CHANGED, on_device_change, NULL);

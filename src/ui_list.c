@@ -10,6 +10,7 @@
 #include "keyboard.h"
 #include "events.h"
 #include "styles.h"
+#include "voice.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,6 +45,29 @@ typedef struct {
     lv_coord_t      top;            /* y of the first row inside the object */
 } ui_list_t;
 
+
+/* The lists alive now, so ui_list_describe() can tell one from any other
+ * object without reading a stranger's user data. */
+#define REGISTRY_MAX 16
+static lv_obj_t *registry[REGISTRY_MAX];
+
+static void registry_set(lv_obj_t *obj, bool add) {
+    for (int i = 0; i < REGISTRY_MAX; i++) {
+        if (add ? registry[i] == NULL : registry[i] == obj) {
+            registry[i] = add ? obj : NULL;
+            return;
+        }
+    }
+}
+
+static bool registered(lv_obj_t *obj) {
+    for (int i = 0; i < REGISTRY_MAX; i++) {
+        if (obj && registry[i] == obj) {
+            return true;
+        }
+    }
+    return false;
+}
 
 static ui_list_t *state(lv_obj_t *obj) {
     return obj ? (ui_list_t *)lv_obj_get_user_data(obj) : NULL;
@@ -210,6 +234,20 @@ static void key_cb(lv_event_t *e) {
             break;
     }
 
+    bool move_key = key == LV_KEY_RIGHT || key == LV_KEY_DOWN || key == LV_KEY_LEFT || key == LV_KEY_UP ||
+                    key == KEYBOARD_PGDN || key == KEYBOARD_PGUP || key == LV_KEY_HOME || key == LV_KEY_END;
+
+    /* Spoken before the event, which may rebuild or close the list. A list
+     * of one row, or none, never changes selection: say it anyway, so
+     * turning the knob is never silent. */
+    if (l->sel != old_sel || (move_key && l->count <= 1)) {
+        char buf[256];
+
+        if (ui_list_describe(obj, buf, sizeof(buf))) {
+            voice_say_clean(buf, true);
+        }
+    }
+
     if (l->sel != old_sel) {
         lv_event_send(obj, LV_EVENT_VALUE_CHANGED, NULL);
     }
@@ -229,6 +267,7 @@ static void delete_cb(lv_event_t *e) {
     lv_obj_t *obj = lv_event_get_target(e);
     ui_list_t *l = state(obj);
 
+    registry_set(obj, false);
     if (l) {
         lv_obj_set_user_data(obj, NULL);
         free(l);
@@ -497,8 +536,46 @@ lv_obj_t *ui_list_create(lv_obj_t *parent, const ui_list_cfg_t *cfg) {
     lv_obj_add_event_cb(obj, activate_cb,
                         cfg->activate_on_click ? LV_EVENT_CLICKED : LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(obj, delete_cb, LV_EVENT_DELETE, NULL);
+    registry_set(obj, true);
 
     return obj;
+}
+
+bool ui_list_describe(lv_obj_t *obj, char *buf, int size) {
+    if (!registered(obj) || !buf || size <= 0) {
+        return false;
+    }
+
+    ui_list_t *l = state(obj);
+
+    buf[0] = '\0';
+    if (!l) {
+        return false;
+    }
+    if (l->count <= 0) {
+        snprintf(buf, size, "%s", l->cfg.empty_text && l->cfg.empty_text[0] ? l->cfg.empty_text : "List empty");
+        return true;
+    }
+    if (!row_valid(l, l->sel) || !l->cfg.row_cb) {
+        return false;
+    }
+
+    ui_list_row_t row;
+
+    memset(&row, 0, sizeof(row));
+    l->cfg.row_cb(l->cfg.user, l->sel, &row);
+
+    int n = 0;
+
+    for (int c = 0; c < l->cfg.col_count && n < size; c++) {
+        if (row.cell[c][0]) {
+            n += snprintf(buf + n, size - n, "%s%s", n ? ", " : "", row.cell[c]);
+        }
+    }
+    if (n < size && l->count > 1) {
+        snprintf(buf + n, size - n, "%s%d of %d", n ? ", " : "", l->sel + 1, l->count);
+    }
+    return true;
 }
 
 void ui_list_set_count(lv_obj_t *list, int count) {

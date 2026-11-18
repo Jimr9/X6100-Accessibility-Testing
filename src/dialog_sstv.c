@@ -31,6 +31,8 @@
 #include "tx_info.h"
 #include "events.h"
 #include "msg.h"
+#include "voice.h"
+#include "voice_focus.h"
 #include "ui_list.h"
 #include "app_info.h"
 #include "cfg/cfg_api.h"

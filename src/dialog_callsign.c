@@ -141,7 +141,8 @@ static void open_suffix_list(int now) {
 
         lv_event_send(lv_group_get_focused(keyboard_group), LV_EVENT_KEY, &key);
     }
-    voice_say_text_fmt("Suffix list");
+    /* No "Suffix list" here: the list speaks its title and the item the
+     * cursor is on (digi_menu.c). */
 }
 
 static bool edit_ok() {

@@ -247,6 +247,21 @@ static const char *mode_to_string(x6100_mode_t mode) {
     }
 }
 
+/* The mode as spoken: letters apart, as the main screen says them. */
+static const char *mode_to_speech(x6100_mode_t mode) {
+    switch (mode) {
+        case x6100_mode_lsb:        return "L S B";
+        case x6100_mode_usb:        return "U S B";
+        case x6100_mode_lsb_dig:    return "L S B digital";
+        case x6100_mode_usb_dig:    return "U S B digital";
+        case x6100_mode_cw:         return "C W";
+        case x6100_mode_cwr:        return "C W reverse";
+        case x6100_mode_am:         return "A M";
+        case x6100_mode_nfm:        return "N F M";
+        default:                    return "";
+    }
+}
+
 /*
  * Copy text into buf, shortened with ".." so that it fits max_w pixels.
  * UTF-8 safe: never cuts inside a multi-byte character.
@@ -407,6 +422,41 @@ static void scroll_to_row(int16_t row, scroll_t how) {
         first_row = 0;
     }
     update_scrollbar();
+}
+
+/*
+ * Speech for the selected channel: "BBC, 9.41 megahertz, A M, 3 of 20".
+ * intro: the window just opened, so "Channel list." comes first.
+ */
+static void say_selection(bool intro) {
+    unsigned         count = channels_count();
+    const channel_t *channel = row_valid(sel_row) ? channels_get((uint16_t)sel_row) : NULL;
+    char             text[200];
+
+    if (!channel) {
+        if (intro) {
+            voice_say_text_fmt(count ? "Channel list" : "Channel list, no channels. Press Add to store the current frequency");
+        }
+        return;
+    }
+
+    char     mhz[24];
+    uint32_t f = channel->freq;
+    int      n = snprintf(mhz, sizeof(mhz), "%u.%06u", (unsigned)(f / 1000000), (unsigned)(f % 1000000));
+
+    while (n > 0 && mhz[n - 1] == '0') {
+        mhz[--n] = '\0';
+    }
+    if (n > 0 && mhz[n - 1] == '.') {
+        mhz[--n] = '\0';
+    }
+    snprintf(text, sizeof(text), "%s%s, %s megahertz, %s, %d of %u", intro ? "Channel list. " : "",
+             channel->name[0] ? channel->name : "Unnamed", mhz, mode_to_speech(channel->mode), sel_row + 1, count);
+    if (intro) {
+        voice_say_text_fmt("%s", text);
+    } else {
+        voice_delay_say_text_fmt("%s", text);
+    }
 }
 
 static void set_selection(int16_t row, scroll_t how) {
@@ -865,6 +915,7 @@ static void open_common(void) {
     input_attach();
 
     set_selection(row_valid(last_recalled_row) ? last_recalled_row : 0, SCROLL_CENTER);
+    say_selection(true);
 }
 
 /* Reset everything that belongs to an open window (both modes). */
@@ -1029,6 +1080,7 @@ static void move_selection(int16_t delta) {
             row += count;
         }
         set_selection(row, SCROLL_ENSURE);
+        say_selection(false);
         return;
     }
 
@@ -1057,6 +1109,7 @@ static void move_selection(int16_t delta) {
     }
 
     set_selection(to, SCROLL_ENSURE);
+    voice_delay_say_text_fmt("Position %d of %d", to + 1, count);
 }
 
 
@@ -1084,6 +1137,7 @@ static void move_selection_coarse(int16_t delta) {
         row = (sel_row == 0) ? count - 1 : 0;
     }
     set_selection(row, SCROLL_ENSURE);
+    say_selection(false);
 }
 
 

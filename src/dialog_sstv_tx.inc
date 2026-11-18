@@ -891,6 +891,7 @@ static void tx_instruction_show(const char *text)
     lv_obj_set_style_text_align(tx_instruction_label, LV_TEXT_ALIGN_LEFT, 0);
     lv_label_set_long_mode(tx_instruction_label, LV_LABEL_LONG_WRAP);
     lv_label_set_text(tx_instruction_label, text);
+    voice_focus_hint(text);  /* speech: the step's instruction */
 }
 
 static void tx_save_rx_canvas(void)
@@ -2070,6 +2071,17 @@ static void tx_type_update_help(void)
     }
 
     lv_label_set_text(tx_type_help_label,text);
+
+    /* Speech: the choice with its help, superseding the list's own
+     * reading of the bare row (both are debounced). */
+    if (voice_auto_active() && text[0]) {
+        char row_text[160];
+        char said[400];
+        if (voice_focus_describe(tx_type_table, row_text, sizeof(row_text))) {
+            snprintf(said, sizeof(said), "%s. %s", row_text, text);
+            voice_say_clean(said, true);
+        }
+    }
 }
 
 static void tx_type_selection_changed_cb(lv_event_t *e)

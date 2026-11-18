@@ -11,6 +11,7 @@
 #include "styles.h"
 #include "util.h"
 #include "events.h"
+#include "voice.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,6 +61,11 @@ static void msg_show_timer(lv_timer_t *t) {
         lv_timer_del(fade_out_timer);
     }
     lv_label_set_text(obj, msg->text);
+    // Spoken as it appears (not when queued), so queued messages follow
+    // one another - only while the app speech helper is on (voice.h).
+    if (voice_auto_active()) {
+        voice_say_clean(msg->text, msg->type == MSG_UPDATE);
+    }
     lv_obj_move_foreground(container);
     lv_anim_set_values(&fade, lv_obj_get_style_opa(obj, 0), LV_OPA_COVER);
     fade_run = true;
@@ -92,6 +98,11 @@ static void msg_update_cb(lv_event_t * e) {
 static void create_msg(const char * fmt, enum msg_type_t type, uint16_t dur, va_list args) {
     delayed_message_t * msg = (delayed_message_t *) malloc(sizeof(delayed_message_t));
     vsnprintf(msg->text, sizeof(msg->text), fmt, args);
+    // Counts as speech now, though it is spoken later when shown: a button
+    // that shows a message must not also get its label read (buttons.cpp).
+    if (voice_auto_active()) {
+        voice_count_bump();
+    }
     msg->type = type;
     msg->dur = dur;
     event_send(obj, EVENT_MSG_UPDATE, (void*)msg);

@@ -120,6 +120,13 @@ void ui_list_select(lv_obj_t *list, int index);
 int  ui_list_visible_rows(lv_obj_t *list);
 
 /*
+ * Speech (accessibility): the selected row as one line, "cell, cell, 3 of
+ * 12", or the empty text. False when `obj` is not a ui_list. Moving the
+ * selection with the keys speaks it by itself.
+ */
+bool ui_list_describe(lv_obj_t *obj, char *buf, int size);
+
+/*
  * Split a saved file name "<prefix>YYYYMMDD-HHMMSS.png" into
  * "YYYY-MM-DD" and "HH:MM:SS".  Returns false if the name does not match.
  */

@@ -40,6 +40,7 @@
 #include "main.h"
 #include "main_screen.h"
 #include "msg.h"
+#include "voice.h"
 #include "radio.h"
 #include "keypad.h"
 #include "scheduler.h"
@@ -1887,6 +1888,12 @@ static void table_select_cb(lv_event_t *e) {
         marks_invalidate();
     }
     if (auto_selecting) return;
+    /* Speech: the row the knob is on (not rows selected by new decodes). */
+    if (voice_auto_active()) {
+        uint16_t r, c;
+        lv_table_get_selected_cell(table, &r, &c);
+        if (r != LV_TABLE_CELL_NONE && r < rows) voice_say_clean(lv_table_get_cell_value(table, r, 0), true);
+    }
     cursor_user_ms = now_wall_ms();
     if (sel_locked) return; /* scrolling to read: the locked station stays */
     select_at_cursor(false);
@@ -9028,6 +9035,12 @@ static void alert_check(js8_rx_msg_t *m, bool new_station) {
     }
     uint8_t a      = param_i_get(cfg.js8.alerts());
     bool    hb_ack = strstr(m->text, " HEARTBEAT SNR") != NULL;
+    /* Speech: a message to you is read out, as the beep calls for it. */
+    if (m->to_me && !hb_ack && voice_auto_active()) {
+        char said[200];
+        snprintf(said, sizeof(said), "Message for you: %s", m->text);
+        voice_say_clean(said, false);
+    }
     if ((a & JS8_ALERT_TO_ME) && m->to_me && !hb_ack) alert_beep(1);
     else if ((a & JS8_ALERT_CQ) && m->cq) alert_beep(1);
     else if ((a & JS8_ALERT_NEW) && new_station && m->from[0] && !worked_before(m->from)) {

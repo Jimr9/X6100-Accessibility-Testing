@@ -571,6 +571,13 @@ void radio_set_ptt(bool tx) {
 }
 
 void radio_set_modem(bool tx) {
+    // The app's own audio is about to be transmitted: an announcement still
+    // playing would race it for the audio path (the same hazard behind the
+    // Msg Voice two-press Send), or go out over the air. Cut it off first;
+    // voice_stop() waits for its clean-up.
+    if (tx) {
+        voice_stop();
+    }
     diag_tx_note(tx, &diag_cmd_modem);
     WITH_RADIO_LOCK(x6100_control_modem_set(tx));
     diag_tx_log("MODEM", tx);

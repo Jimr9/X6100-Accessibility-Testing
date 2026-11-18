@@ -10,6 +10,9 @@
 
 #include "util.h"
 #include "display.h"
+// C++ (templates): included before radio.h, which needs it, is pulled in
+// with C linkage below.
+#include "cfg/subject_api.h"
 
 extern "C" {
 #include <unistd.h>
@@ -20,6 +23,7 @@ extern "C" {
 #include "bt_audio.h"
 #include "recorder.h"
 #include "msg.h"
+#include "radio.h"
 }
 
 #include "cfg/cfg_api.h"
@@ -31,6 +35,7 @@ extern "C" {
 #include <fstream>
 #include <iterator>
 #include <algorithm>
+#include <mutex>
 
 #include <RHVoice/core/engine.hpp>
 #include <RHVoice/core/document.hpp>
@@ -70,6 +75,10 @@ audio_player::audio_player(const char *device) {
 // app instead of back to normal mic/RX - a stop flag lets the current
 // thread always finish its own cleanup on its own terms, just sooner.
 static std::atomic<bool> stop_requested{false};
+
+// Every attempt to speak, see voice_say_count() in voice.h.
+static std::atomic<uint32_t> say_attempts{0};
+static std::atomic<bool>     auto_speech{false};
 
 bool audio_player::play_speech(const short* buf, std::size_t count) {
     if (stop_requested) {
@@ -235,6 +244,8 @@ void voice_change_mode() {
 }
 
 bool voice_enable() {
+    say_attempts++;
+
     if (recorder_is_on()) {
         return false;
     }
@@ -281,11 +292,19 @@ bool voice_enable() {
 // still waiting out its pre-speech delay) and waits for it to finish its
 // own cleanup, so audio_set_play_mode(AUDIO_PLAY_OFF) always runs before
 // a new announcement takes over. Safe to call even if nothing is running.
+static std::mutex stop_mutex;
+
 static void voice_stop_current() {
+    std::lock_guard<std::mutex> lock(stop_mutex);
+
     stop_requested = true;
 
     if (thread) {
         pthread_join(thread, NULL);
+        // Zeroed so a second stop with no new announcement in between
+        // (voice_stop() before a transmission, then the next announcement's
+        // own stop) never joins the same, already-joined thread twice.
+        thread = 0;
     }
 
     stop_requested = false;
@@ -495,4 +514,115 @@ void voice_say_text(const char *prompt, const char *x) {
 
 void voice_say_lang() {
     voice_delay_say_text_fmt(voice_item[cfg.voice.lang()->get()].welcome);
+}
+
+// ---- Accessibility helpers, see voice.h ----
+
+uint32_t voice_say_count() {
+    return say_attempts.load();
+}
+
+void voice_count_bump() {
+    say_attempts++;
+}
+
+void voice_auto_set(bool on) {
+    auto_speech = on;
+}
+
+bool voice_auto_active() {
+    return auto_speech && radio_get_state() != RADIO_TX;
+}
+
+void voice_stop() {
+    voice_stop_current();
+}
+
+static bool is_hex(char c) {
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
+void voice_clean_text(const char *in, char *out, size_t size) {
+    size_t n = 0;
+
+    if (!out || size == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (!in) {
+        return;
+    }
+
+    auto put = [&](const char *s) {
+        for (; *s && n + 1 < size; s++) {
+            // no doubled spaces, no space or comma to start with
+            if (*s == ' ' && (n == 0 || out[n - 1] == ' ')) {
+                continue;
+            }
+            if (*s == ',' && (n == 0 || out[n - 1] == ',')) {
+                continue;
+            }
+            if (*s == ',' && n > 0 && out[n - 1] == ' ') {
+                n--;
+            }
+            out[n++] = *s;
+        }
+    };
+
+    for (const char *p = in; *p && n + 1 < size; p++) {
+        unsigned char c = (unsigned char)*p;
+
+        // LVGL colour codes: "#ff0000 red text#"
+        if (c == '#') {
+            if (is_hex(p[1]) && is_hex(p[2]) && is_hex(p[3]) && is_hex(p[4]) && is_hex(p[5]) && is_hex(p[6]) &&
+                p[7] == ' ') {
+                p += 7;
+            }
+            continue;
+        }
+        if (c >= 0x80) {            // symbols from the icon fonts
+            put(" ");
+            continue;
+        }
+        if (c == '\n' || c == '\r' || c == '\t') {
+            put(", ");
+            continue;
+        }
+        if (c == '.' && p[1] == '.') {   // "Send..." and the like
+            while (p[1] == '.') {
+                p++;
+            }
+            put(" ");
+            continue;
+        }
+        if (strchr("<>|_[]{}~`^*\\=\"", c)) {
+            put(" ");
+            continue;
+        }
+        if (c == '&') {
+            put(" and ");
+            continue;
+        }
+        char one[2] = {(char)c, 0};
+        put(one);
+    }
+    // nothing dangling at the end
+    while (n > 0 && (out[n - 1] == ' ' || out[n - 1] == ',')) {
+        n--;
+    }
+    out[n] = '\0';
+}
+
+void voice_say_clean(const char *text, bool delayed) {
+    char clean[sizeof(buf)];
+
+    voice_clean_text(text, clean, sizeof(clean));
+    if (!clean[0]) {
+        return;
+    }
+    if (delayed) {
+        voice_delay_say_text_fmt("%s", clean);
+    } else {
+        voice_say_text_fmt("%s", clean);
+    }
 }
