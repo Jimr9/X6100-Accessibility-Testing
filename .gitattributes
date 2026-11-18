@@ -5,3 +5,9 @@
 # x6100_gui. Force LF regardless of the checking-out machine's core.autocrlf
 # setting so this can't silently reintroduce itself on a Windows checkout.
 rootfs/** text eol=lf
+
+# Binary files under rootfs/ (SSTV pictures, the SSTV/WeFax denoise
+# model) must never get the eol=lf conversion above: PNG headers contain
+# CR LF bytes, so normalizing them would corrupt the images.
+rootfs/**/*.png binary
+rootfs/**/*.bin binary
