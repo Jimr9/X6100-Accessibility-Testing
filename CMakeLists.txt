@@ -57,6 +57,13 @@ else()
         install(FILES tools/map_data/js8_map.bin DESTINATION share/x6100/js8)
         # Callsign -> country for the FT8/FT4 table and JS8's map (AD1C, country-files.com)
         install(FILES third-party/cty/cty.dat DESTINATION share/x6100)
+        # The version number for the in-radio updater (rootfs/usr/sbin/x6100-update), from src/main.h's VERSION.
+        # Read at configure time: a changed main.h configures again
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS src/main.h)
+        file(STRINGS src/main.h APP_VERSION REGEX "define VERSION ")
+        string(REGEX REPLACE ".*\"v([0-9.]+)\".*" "\\1" APP_VERSION "${APP_VERSION}")
+        file(WRITE ${CMAKE_BINARY_DIR}/app-version "${APP_VERSION}\n")
+        install(FILES ${CMAKE_BINARY_DIR}/app-version DESTINATION share/x6100)
 endif()
 
 

@@ -1,0 +1,454 @@
+#!/usr/bin/env python3
+# X6100 Accessibility updater: the GUI and its files replaced on the running radio from a signed bundle
+# (tools/update/mkbundle.py), with a journal and the previous files kept so a bad version goes back by itself.
+# Adapted from OpenX6X00's x6100-update (Joeri Van Dooren ON6URE / Guru-RF, LGPL-2.1-or-later): the same
+# journal, staging, signature check and roll-back, without what is OpenX6X00's own (X6200, Tailscale, card
+# image levels). Every command prints one line or one JSON object on stdout, exit 0/1.
+#
+#   status                   {"running":..,"pending":..,"last":..,"progress":..}
+#   check                    {"running":..,"latest":..,"url":..,"newer":bool,"notes":..}   (GitHub Releases)
+#   download <url>           the bundle into /mnt/update, progress in /mnt/update/.progress
+#   install <file>           verify, stage, swap in, restart the GUI
+#   upgrade                  check, download and install the newer release
+#   rollback                 the previous files back, restart
+#   confirm                  the new version runs: the pending mark goes (the GUI, after a minute)
+#   boot-check               before each GUI start (x6100_daemon): a pending version that keeps dying is rolled back
+#   notice                   "ok <text>" once after a version was taken back; "ok" when there is nothing to say
+#
+# SPDX-License-Identifier: LGPL-2.1-or-later
+import hashlib
+import fcntl
+import json
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import tarfile
+import time
+import urllib.error
+import urllib.request
+
+REPO = os.environ.get("X6100_UPDATE_REPO", "Jimr9/X6100-Accessibility-Testing")
+API = f"https://api.github.com/repos/{REPO}/releases/latest"
+PRODUCT = "X6100-Accessibility"
+PUB = "/usr/share/x6100/update.pub"
+VERSION_FILE = "/usr/share/x6100/app-version"
+STATE = "/var/lib/x6100-update"       # the journal and the previous files: on the root filesystem
+PREV = os.path.join(STATE, "prev")
+JOURNAL = os.path.join(STATE, "journal.json")
+PENDING = os.path.join(STATE, "pending.json")
+LAST = os.path.join(STATE, "last.json")
+WORK = "/mnt/update"                  # the download and the staging: the DATA partition has the room
+PROGRESS = os.path.join(WORK, ".progress")
+ALLOW_UNSIGNED = os.path.join(WORK, "allow-unsigned")
+ALLOWED = ("/usr/sbin/", "/usr/bin/", "/usr/lib/", "/usr/share/x6100/", "/etc/init.d/", "/etc/")
+MAX_STARTS = 3                        # GUI starts without a confirm before the rollback
+TIMEOUT = 30
+RUN_LIMIT = 1800
+LOCK = os.path.join(STATE, "lock")
+LOCK_WAIT = int(os.environ.get("X6100_UPDATE_LOCK_WAIT", "120"))
+
+
+class Fail(Exception):
+    pass
+
+
+def running_version():
+    try:
+        with open(VERSION_FILE) as f:
+            return f.read().strip()
+    except OSError:
+        return "unknown"
+
+
+def vtuple(v):
+    out = []
+    for part in str(v).lstrip("v").split("."):
+        digits = "".join(ch for ch in part if ch.isdigit())
+        out.append(int(digits) if digits else 0)
+    return tuple(out)
+
+
+def version_name(version, unknown="the version before"):
+    return f"version {version}" if vtuple(version or "") > (0,) else unknown
+
+
+def load(path, default=None):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def save(path, obj):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(obj, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    dfd = os.open(os.path.dirname(path), os.O_RDONLY)
+    os.fsync(dfd)
+    os.close(dfd)
+
+
+def progress(step, got=0, total=0):
+    os.makedirs(WORK, exist_ok=True)
+    with open(PROGRESS + ".tmp", "w") as f:
+        f.write(f"{step} {got} {total}\n")
+    os.replace(PROGRESS + ".tmp", PROGRESS)
+
+
+def rollback_text(last):
+    what = version_name(last.get("version"), "the update")
+    to = version_name(last.get("to"))
+    why = {"starts": f"it did not stay up a minute in {last.get('starts', MAX_STARTS)} starts",
+           "interrupted": "its install was cut short", "hand": "by hand"}.get(last.get("reason"), "")
+    return f"Update to {what} taken back to {to}" + (f", {why}" if why else "")
+
+
+def save_rollback(version, to, reason, **more):
+    last = {"result": "rolled back", "version": version, "to": to, "reason": reason, **more, "when": time.time()}
+    last["text"] = rollback_text(last)
+    save(LAST, last)
+
+
+def restart_gui():
+    """The GUI's start loop (x6100_daemon) and the GUI, detached: the loop is a shell script the bundle may have
+    changed, and the running shell keeps the old one until it exits"""
+    subprocess.Popen(["setsid", "sh", "-c", "sleep 2; /etc/init.d/S95gui restart >/dev/null 2>&1"],
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+
+
+# ---- check and download --------------------------------------------------------------------
+
+def http(url, timeout=TIMEOUT):
+    req = urllib.request.Request(url, headers={"User-Agent": f"X6100-Accessibility/{running_version()}",
+                                               "Accept": "application/json"})
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def bundle_asset(name):
+    return name.endswith("-update.tar.gz")
+
+
+def cmd_check(args):
+    out = {"running": running_version(), "latest": None, "url": None, "newer": False, "notes": ""}
+    try:
+        with http(API) as r:
+            rel = json.load(r)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return out
+        raise Fail(f"GitHub answered HTTP {e.code}")
+    except (OSError, ValueError) as e:
+        raise Fail(f"no connection to GitHub: {getattr(e, 'reason', e)}")
+    asset = next((x for x in rel.get("assets", []) if bundle_asset(str(x.get("name", "")))), None)
+    # the version is the bundle's, from its name (X6100-Accessibility-v1.2.0.2-update.tar.gz): the tags are names
+    latest = None
+    if asset:
+        name = str(asset.get("name", ""))
+        if "-v" in name:
+            latest = name.rsplit("-v", 1)[1][:-len("-update.tar.gz")]
+    out["latest"] = latest
+    out["url"] = asset["browser_download_url"] if asset else None
+    out["notes"] = (rel.get("body") or "")[:2000]
+    out["newer"] = bool(latest and vtuple(latest) > vtuple(out["running"]))
+    return out
+
+
+def cmd_download(args):
+    url = args[0]
+    os.makedirs(WORK, exist_ok=True)
+    dest = os.path.join(WORK, "bundle.tar.gz")
+    got = 0
+    with http(url, timeout=60) as r, open(dest + ".part", "wb") as f:
+        total = int(r.headers.get("Content-Length") or 0)
+        progress("download", 0, total)
+        while True:
+            chunk = r.read(65536)
+            if not chunk:
+                break
+            f.write(chunk)
+            got += len(chunk)
+            progress("download", got, total)
+        f.flush()
+        os.fsync(f.fileno())
+    if total and got != total:
+        raise Fail(f"short download: {got} of {total} bytes")
+    os.replace(dest + ".part", dest)
+    return dest
+
+
+# ---- verify and install --------------------------------------------------------------------
+
+def read_manifest(tar):
+    try:
+        mjson = tar.extractfile("manifest.json").read()
+    except (KeyError, AttributeError):
+        raise Fail("not an update bundle: no manifest")
+    try:
+        sig = tar.extractfile("manifest.sig").read()
+    except (KeyError, AttributeError):
+        sig = None
+    if sig is None:
+        if not os.path.exists(ALLOW_UNSIGNED):
+            raise Fail("the bundle is not signed")
+    else:
+        os.makedirs(WORK, exist_ok=True)
+        mpath, spath = os.path.join(WORK, ".manifest"), os.path.join(WORK, ".manifest.sig")
+        with open(mpath, "wb") as f:
+            f.write(mjson)
+        with open(spath, "wb") as f:
+            f.write(sig)
+        try:
+            r = subprocess.run(["openssl", "dgst", "-sha256", "-verify", PUB, "-signature", spath, mpath],
+                               capture_output=True, timeout=60)
+        except OSError:
+            raise Fail("openssl is missing: the signature cannot be checked")
+        if r.returncode != 0:
+            raise Fail("the signature does not match: not a bundle made for this firmware")
+    try:
+        m = json.loads(mjson)
+    except ValueError:
+        raise Fail("the manifest is not JSON")
+    if m.get("product") != PRODUCT or not isinstance(m.get("files"), list) or not m.get("version"):
+        raise Fail("the bundle is not for this firmware")
+    for e in m["files"]:
+        p = e.get("path", "")
+        if not p.startswith("/") or ".." in p.split("/") or not p.startswith(ALLOWED) or p.endswith("/"):
+            raise Fail(f"the bundle wants to write {p}: refused")
+    return m
+
+
+def stage(bundle):
+    st = os.path.join(WORK, "stage")
+    shutil.rmtree(st, ignore_errors=True)
+    os.makedirs(st)
+    plain = os.path.join(WORK, "bundle.tar")
+    with open(plain, "wb") as f:
+        r = subprocess.run(["gzip", "-dc", bundle], stdout=f, stderr=subprocess.PIPE)
+    if r.returncode != 0:
+        raise Fail("not a gzip file")
+    with tarfile.open(plain, "r:") as tar:
+        m = read_manifest(tar)
+        n = len(m["files"])
+        for i, e in enumerate(m["files"]):
+            progress("verify", i, n)
+            try:
+                src = tar.extractfile("files" + e["path"])
+            except KeyError:
+                src = None
+            if src is None:
+                raise Fail(f"{e['path']} is missing from the bundle")
+            dest = os.path.join(st, e["path"].lstrip("/"))
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            h = hashlib.sha256()
+            with open(dest, "wb") as f:
+                while True:
+                    chunk = src.read(65536)
+                    if not chunk:
+                        break
+                    h.update(chunk)
+                    f.write(chunk)
+                f.flush()
+                os.fsync(f.fileno())
+            if h.hexdigest() != e.get("sha256"):
+                raise Fail(f"{e['path']} does not match its checksum")
+    os.remove(plain)
+    return m
+
+
+def apply(m):
+    st = os.path.join(WORK, "stage")
+    shutil.rmtree(PREV, ignore_errors=True)
+    modes = {e["path"]: int(str(e.get("mode", "644")), 8) for e in m["files"]}
+    files = [{"path": e["path"], "prev": os.path.exists(e["path"]), "done": False} for e in m["files"]]
+    journal = {"version": m["version"], "from": running_version(), "state": "applying", "files": files,
+               "started": time.time()}
+    save(JOURNAL, journal)
+    n = len(files)
+    for i, f in enumerate(files):
+        progress("install", i, n)
+        p = f["path"]
+        if f["prev"]:
+            keep = os.path.join(PREV, p.lstrip("/"))
+            os.makedirs(os.path.dirname(keep), exist_ok=True)
+            shutil.copy2(p, keep)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        tmp = p + ".x6new"
+        shutil.copy2(os.path.join(st, p.lstrip("/")), tmp)
+        os.chmod(tmp, modes[p])          # the manifest's mode: the DATA partition's FAT keeps none
+        fd = os.open(tmp, os.O_RDONLY)
+        os.fsync(fd)
+        os.close(fd)
+        f["replacing"] = True
+        save(JOURNAL, journal)
+        os.replace(tmp, p)
+        f["done"] = True
+        save(JOURNAL, journal)
+    if running_version() != m["version"]:
+        tmp = VERSION_FILE + ".x6new"
+        with open(tmp, "w") as f:
+            f.write(m["version"] + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, VERSION_FILE)
+    save(PENDING, {"version": m["version"], "from": journal["from"], "starts": 0, "since": time.time()})
+    journal["state"] = "applied"
+    save(JOURNAL, journal)
+    shutil.rmtree(st, ignore_errors=True)
+    os.sync()
+
+
+def undo(journal):
+    for f in reversed(journal.get("files", [])):
+        if f.get("restored") or not (f.get("done") or f.get("replacing")):
+            continue
+        p = f["path"]
+        keep = os.path.join(PREV, p.lstrip("/"))
+        if f.get("prev"):
+            if os.path.exists(keep):
+                os.replace(keep, p)
+        else:
+            try:
+                os.remove(p)
+            except FileNotFoundError:
+                pass
+        f["restored"] = True
+        save(JOURNAL, journal)
+    os.sync()
+
+
+def cmd_install(args):
+    if not args:
+        raise Fail("install needs the bundle's path")
+    if load(JOURNAL, {}).get("state") == "applying":
+        raise Fail("an interrupted install must be rolled back first")
+    progress("verify")
+    m = stage(args[0])
+    apply(m)
+    save(LAST, {"result": "installed", "version": m["version"], "when": time.time()})
+    progress("done")
+    restart_gui()
+    return f"ok {m['version']}"
+
+
+def cmd_upgrade(args):
+    c = cmd_check(args)
+    if not c["newer"]:
+        return "ok up to date" if c["latest"] else "ok no release"
+    return cmd_install([cmd_download([c["url"]])])
+
+
+def cmd_rollback(args):
+    journal = load(JOURNAL)
+    if not journal or journal.get("state") == "rolled back":
+        raise Fail("nothing to roll back")
+    undo(journal)
+    journal["state"] = "rolled back"
+    save(JOURNAL, journal)
+    if os.path.exists(PENDING):
+        os.remove(PENDING)
+    save_rollback(journal.get("version"), journal.get("from"), "hand")
+    restart_gui()
+    return f"ok back to {journal.get('from')}"
+
+
+def cmd_confirm(args):
+    if os.path.exists(PENDING):
+        pend = load(PENDING, {})
+        os.remove(PENDING)
+        journal = load(JOURNAL)
+        if journal:
+            journal["state"] = "confirmed"
+            save(JOURNAL, journal)
+        save(LAST, {"result": "confirmed", "version": pend.get("version"), "when": time.time()})
+        return f"ok {pend.get('version')} confirmed"
+    return "ok nothing pending"
+
+
+def cmd_boot_check(args):
+    journal = load(JOURNAL)
+    if journal and journal.get("state") == "applying":   # power went during the swap
+        undo(journal)
+        journal["state"] = "rolled back"
+        save(JOURNAL, journal)
+        if os.path.exists(PENDING):
+            os.remove(PENDING)
+        save_rollback(journal.get("version"), journal.get("from"), "interrupted")
+        return "rolled back: interrupted install"
+    pend = load(PENDING)
+    if not pend:
+        return "ok"
+    pend["starts"] = int(pend.get("starts", 0)) + 1
+    if pend["starts"] > MAX_STARTS:
+        if journal:
+            undo(journal)
+            journal["state"] = "rolled back"
+            save(JOURNAL, journal)
+        os.remove(PENDING)
+        save_rollback(pend.get("version"), pend.get("from"), "starts", starts=MAX_STARTS)
+        return f"rolled back to {pend.get('from')}"
+    save(PENDING, pend)
+    return f"pending {pend.get('version')} start {pend['starts']}"
+
+
+def cmd_notice(args):
+    last = load(LAST)
+    if not isinstance(last, dict) or last.get("result") != "rolled back" or last.get("shown"):
+        return "ok"
+    last["shown"] = time.time()
+    save(LAST, last)
+    return f"ok {last.get('text') or rollback_text(last)}"
+
+
+def cmd_status(args):
+    try:
+        with open(PROGRESS) as f:
+            prog = f.read().strip()
+    except OSError:
+        prog = ""
+    return {"running": running_version(), "pending": load(PENDING), "last": load(LAST), "progress": prog}
+
+
+def take_lock():
+    os.makedirs(STATE, exist_ok=True)
+    fd = os.open(LOCK, os.O_RDWR | os.O_CREAT, 0o600)
+    for _ in range(LOCK_WAIT * 2 + 1):
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd
+        except BlockingIOError:
+            time.sleep(0.5)
+    raise Fail("busy: another update is running")
+
+
+def main(argv):
+    cmds = {"status": cmd_status, "check": cmd_check, "download": cmd_download, "install": cmd_install,
+            "upgrade": cmd_upgrade, "rollback": cmd_rollback, "confirm": cmd_confirm, "boot-check": cmd_boot_check,
+            "notice": cmd_notice}
+    if not argv or argv[0] not in cmds:
+        print("error usage: x6100-update " + "|".join(cmds))
+        return 1
+    signal.signal(signal.SIGALRM, lambda *_: (print("error timed out"), sys.exit(1)))
+    signal.alarm(RUN_LIMIT)
+    try:
+        if argv[0] not in ("status", "check"):
+            take_lock()
+        out = cmds[argv[0]](argv[1:])
+        print(json.dumps(out) if isinstance(out, dict) else out)
+        return 0
+    except Fail as e:
+        print(f"error {e}")
+    except Exception as e:
+        print(f"error {' '.join(str(e).split())[:120] or type(e).__name__}")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

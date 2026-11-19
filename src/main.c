@@ -10,6 +10,7 @@
 #include <pthread.h>
 #include <time.h>
 #include <sys/time.h>
+#include "update.h"
 #include "lvgl/lvgl.h"
 #include "lv_drivers/display/fbdev.h"
 #include "lv_drivers/display/drm.h"
@@ -175,6 +176,7 @@ int main(void) {
         LV_LOG_ERROR("Can't init QSO log");
     }
     qso_log_import_adif("/mnt/incoming_log.adi");
+    update_init();      /* a version taken back is said; this one confirmed after a minute */
 
     int rc = pthread_create(&tick_pthread, NULL, tick_thread, NULL);
 

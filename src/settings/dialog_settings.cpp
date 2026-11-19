@@ -11,6 +11,7 @@
 #include "settings_context.h"
 
 extern "C" {
+#include "../update.h"
 #include "../events.h"
 #include "../keyboard.h"
 #include "../main.h"
@@ -54,12 +55,24 @@ static button_data_t btn_info = {
     .press = load_info_page,
 };
 
+/* F5: updates from inside the radio (update.c): a press checks, the next one installs a newer version */
+static void update_press(button_data_t *btn_data) {
+    update_key();
+}
+
+static button_data_t btn_update = {
+    .type  = BTN_TEXT,
+    .label = "Update",
+    .press = update_press,
+};
+
 buttons_page_t btn_page = {
     {
      &btn_general,
      &btn_ui,
      &btn_voice,
      &btn_info,
+     &btn_update,
      }
 };
 
