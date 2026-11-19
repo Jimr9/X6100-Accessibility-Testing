@@ -1,0 +1,41 @@
+diff --git a/br2_external/configs/X6100_defconfig b/br2_external/configs/X6100_defconfig
+index 862c5e2..d64e2e9 100644
+--- a/br2_external/configs/X6100_defconfig
++++ b/br2_external/configs/X6100_defconfig
+@@ -221,5 +221,14 @@ BR2_PACKAGE_HOST_UBOOT_TOOLS_BOOT_SCRIPT_SOURCE="$(BR2_EXTERNAL_X6100_PATH)/boar
+ BR2_PACKAGE_X6100_GUI=y
+ BR2_PACKAGE_RHVOICE_ENGLISH=y
+ BR2_PACKAGE_RHVOICE_SLT=y
++BR2_PACKAGE_RHVOICE_ALAN=y
++BR2_PACKAGE_RHVOICE_BDL=y
++BR2_PACKAGE_RHVOICE_CLB=y
++BR2_PACKAGE_RHVOICE_ENGENIY_EN=y
++BR2_PACKAGE_RHVOICE_LYUBOV=y
+ BR2_PACKAGE_X6100_WEBSERVER=y
+ BR2_LINUX_KERNEL_EXT_JLT4013A=y
++BR2_PACKAGE_PYTHON3_SSL=y
++BR2_PACKAGE_PYTHON3_ZLIB=y
++BR2_PACKAGE_CA_CERTIFICATES=y
++BR2_PACKAGE_LIBOPENSSL_BIN=y
+diff --git a/br2_external/package/x6100-gui/x6100_gui.mk b/br2_external/package/x6100-gui/x6100_gui.mk
+index 8a2a9be..3f4a449 100644
+--- a/br2_external/package/x6100-gui/x6100_gui.mk
++++ b/br2_external/package/x6100-gui/x6100_gui.mk
+@@ -4,14 +4,9 @@
+ #
+ ################################################################################
+ 
+-X6100_GUI_VERSION = v0.23.0-rc.3
+-X6100_GUI_SITE = https://github.com/OpenX6100/x6100_gui
+-X6100_GUI_SITE_METHOD = git
+-X6100_GUI_GIT_SUBMODULES = YES
+-# The GUI's own code is LGPL-2.1+. JS8's engine (third-party/js8core, from
+-# x6100_gui#301 on) is GPL-3.0, which makes the program GPL-3.0 as a whole.
+-# Its licence file joins X6100_GUI_LICENSE_FILES once X6100_GUI_VERSION is
+-# a release that has it.
++X6100_GUI_VERSION = local
++X6100_GUI_SITE = /mnt/c/claude/x6100_testing/gui
++X6100_GUI_SITE_METHOD = local
+ X6100_GUI_LICENSE = LGPL-2.1+, GPL-3.0 (JS8 engine, third-party/js8core)
+ X6100_GUI_LICENSE_FILES = LICENSE
+ 
