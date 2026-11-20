@@ -53,6 +53,9 @@ static void say(const char *fmt, ...) {
     va_start(ap, fmt);
     vsnprintf(s.text, sizeof(s.text), fmt, ap);
     va_end(ap);
+    /* Only ever called from the updater's own threads: wait out what is being said ("Checking for an update"),
+     * or the answer, which can come back within a second, is dropped while speech is busy (voice_enable) */
+    voice_wait_done();
     scheduler_put(say_job, &s, sizeof(s));
 }
 
